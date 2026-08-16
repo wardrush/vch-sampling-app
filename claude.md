@@ -10,15 +10,15 @@ Answer whether enough context existed to design a sample-collection schema and a
 
 | File | Purpose |
 |---|---|
-| **`docs/SAMPLING_APP_PLAN_v02.md`** | **The plan. Start here.** Supersedes v01. D1–D18, six screens, stack, Netlify limits worked through, storage budget, auth phasing, audit trail, phasing, acceptance criteria, risks, and **Appendix A: which Claude model to build it with** |
-| **`docs/PLAN_INGEST_SPEC_v01.md`** | Thane's upload surface — CSV/XLSX drop and Excel paste, columns, validation rules, mapping memory, map preview, commit semantics, tutorial vs production branch, token-URL auth |
-| **`docs/SCHEMA_AND_SYNC_ADDENDUM_v02.md`** | Delta on the schema and sync contract. Read alongside v01, not instead of it |
-| `docs/SAMPLING_SCHEMA_v01.md` | Base schema — still valid for everything not in the addendum |
-| `docs/SYNC_CONTRACT_v01.md` | Base sync contract — still valid; §4 media tickets and §6 pipeline are amended by the addendum |
-| `docs/sampling_erd.mermaid` | ERD (v01 tables; v02 additions are in the addendum, not yet drawn) |
-| `ddl/snowflake_sampling_v01.sql` + `ddl/snowflake_v02_addendum.sql` | Deploy in that order. Addendum is CREATE + ALTER only |
-| `ddl/device_sqlite_v01.sql` + `ddl/device_sqlite_v02_addendum.sql` | Same |
-| `docs/SAMPLING_APP_PLAN_v01.md` | **Superseded.** Kept for the decision history only |
+| **`SAMPLING_APP_PLAN_v02.md`** | **The plan. Start here.** Supersedes v01. D1–D18, six screens, stack, Netlify limits worked through, storage budget, auth phasing, audit trail, phasing, acceptance criteria, risks, and **Appendix A: which Claude model to build it with** |
+| **`PLAN_INGEST_SPEC_v01.md`** | Thane's upload surface — CSV/XLSX drop and Excel paste, columns, validation rules, mapping memory, map preview, commit semantics, tutorial vs production branch, token-URL auth |
+| **`SCHEMA_AND_SYNC_ADDENDUM_v02.md`** | Delta on the schema and sync contract. Read alongside v01, not instead of it |
+| `SAMPLING_SCHEMA_v01.md` | Base schema — still valid for everything not in the addendum |
+| `SYNC_CONTRACT_v01.md` | Base sync contract — still valid; §4 media tickets and §6 pipeline are amended by the addendum |
+| `sampling_erd.mermaid` | ERD (v01 tables; v02 additions are in the addendum, not yet drawn) |
+| `snowflake_sampling_v01.sql` + `snowflake_v02_addendum.sql` | Deploy in that order. Addendum is CREATE + ALTER only |
+| `device_sqlite_v01.sql` + `device_sqlite_v02_addendum.sql` | Same |
+| `SAMPLING_APP_PLAN_v01.md` | **Superseded.** Kept for the decision history only |
 
 ## Decisions (D1–D18, full table in plan v02 §1)
 

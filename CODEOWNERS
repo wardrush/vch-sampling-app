@@ -1,0 +1,34 @@
+# Concurrent build lanes - three code ownership boundaries
+# See CONCURRENT_BUILD_PLAN_v01.md §4 for detailed ownership rules
+
+# Lane A — Sync spine & server (default: Opus 5)
+src/shared/contract/**         @claude-a
+src/shared/codes/**            @claude-a
+src/shared/db/**               @claude-a
+src/shared/snowflake/**        @claude-a
+src/shared/auth/**             @claude-a
+src/sync/**                    @claude-a
+netlify/functions/sync-*       @claude-a
+netlify/functions/assignments-* @claude-a
+netlify/functions/derive-*     @claude-a
+netlify/functions/nightly-*    @claude-a
+netlify/functions/auth-*       @claude-a
+ddl/**                         @claude-a
+netlify.toml                   @claude-a
+package.json                   @claude-a
+
+# Lane B — Sampler PWA (default: Sonnet 5)
+src/app/**                     @claude-b
+src/shared/map/**              @claude-b
+tools/pmtiles/**               @claude-b
+
+# Lane C — Ingest tool, then analyst queue (default: Haiku 4.5)
+src/ingest/**                  @claude-c
+src/analyst/**                 @claude-c
+netlify/functions/ingest-*     @claude-c
+fixtures/**                    @claude-c
+
+# Root-level docs and coordination
+*.md                           @claude-a
+lanes/                         *
+integration/                   *
