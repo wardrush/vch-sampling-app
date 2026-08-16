@@ -1,0 +1,274 @@
+erDiagram
+    %% ===== EXISTING (entity model appendix) =====
+    PROPERTY   ||--o{ BOUNDARY : "has versions"
+    OPERATION  ||--o{ PROPERTY : controls
+    PERSON     ||--o{ ASSOCIATION : "plays role at"
+    PROPERTY   ||--o{ ASSOCIATION : "access contact"
+
+    %% ===== PLAN =====
+    BOUNDARY   ||--o{ SAMPLE_PLAN : "sampled under"
+    PROJECT_SAMPLING_SPEC ||--o{ SAMPLE_PLAN : "governs"
+    SAMPLE_PLAN ||--o{ SAMPLE_PLAN_POINT : "authors"
+    SAMPLE_PLAN ||--o{ SAMPLE_PLAN : "parent_plan_id (revision)"
+    SAMPLE_POINT ||--o| SAMPLE_PLAN_POINT : "prior_sample_uid (true-up, v2)"
+
+    %% ===== CAPTURE =====
+    BOUNDARY   ||--o{ FIELD_VISIT : "visited"
+    DEVICE     ||--o{ FIELD_VISIT : "used on"
+    PERSON     ||--o{ FIELD_VISIT : "sampler"
+    FIELD_VISIT ||--o{ SAMPLE_POINT : "produces"
+    SAMPLE_PLAN_POINT ||--o{ SAMPLE_POINT : "realized by (0..n)"
+    SAMPLE_POINT ||--o{ SAMPLE_BAG : "fills"
+    SAMPLE_POINT ||--o{ SAMPLE_CONDITION : "observed"
+    SAMPLE_POINT ||--o{ SAMPLE_DEFECT : "flagged"
+    SAMPLE_POINT ||--o{ MEDIA : "photographed"
+    SAMPLE_BAG  ||--o{ MEDIA : "label photo"
+    FIELD_VISIT ||--o{ MEDIA : "visit-level photo"
+    SAMPLE_POINT ||--o| SAMPLE_POINT : "supersedes_sample_uid"
+
+    %% ===== SYNC / PROVENANCE =====
+    DEVICE     ||--o{ SYNC_BATCH : "sends"
+    SYNC_BATCH ||--o{ SAMPLE_POINT : "carried"
+    SYNC_BATCH ||--|| RAW_SYNC_PAYLOAD : "verbatim"
+
+    %% ===== LAB =====
+    SAMPLE_BAG ||--o| LAB_RESULT : "joins on (lab_id, barcode, received_date)"
+    LAB_FILE   ||--o{ LAB_RESULT : "parsed from"
+
+    %% ===== CUSTODY (stub, v2) =====
+    SHIPMENT   ||--o{ SHIPMENT_BAG : contains
+    SAMPLE_BAG ||--o| SHIPMENT_BAG : "boxed as"
+
+    PROJECT_SAMPLING_SPEC {
+        string spec_id PK
+        string project_id
+        string protocol_version
+        string period_code
+        number depth_top_cm
+        number depth_bottom_cm
+        string depth_increments_json
+        number overdrill_cm
+        number cores_per_composite_min
+        number cores_per_composite_max
+        number composite_radius_m
+        boolean bd_core_required
+        array required_media_roles
+        number gps_accuracy_required_m
+        number max_plan_offset_m_warn
+        number max_plan_offset_m_block
+        date effective_start
+        date effective_end
+    }
+
+    SAMPLE_PLAN {
+        string plan_id PK
+        string boundary_id FK
+        string spec_id FK
+        string period_code
+        number plan_version
+        string parent_plan_id FK
+        string status "draft|released|superseded"
+        timestamp released_ts
+        string released_by
+        number point_count
+    }
+
+    SAMPLE_PLAN_POINT {
+        string plan_point_id PK
+        string plan_id FK
+        string plan_point_label
+        number planned_lat
+        number planned_lon
+        string strata_label
+        string stratification_method
+        string elevation_class "A_high|B_low|null"
+        string prior_sample_uid FK "true-up link"
+        number sequence_no
+        string access_note
+    }
+
+    FIELD_VISIT {
+        string visit_id PK "client-generated UUIDv7"
+        string boundary_id FK
+        string plan_id FK
+        string crew_org_id
+        string sampler_person_id FK
+        string device_id FK
+        string access_contact_person_id FK
+        date visit_date
+        timestamp started_ts
+        timestamp ended_ts
+        string status "in_progress|complete|abandoned"
+        string abandon_reason_code
+        string spec_id FK
+        string app_version
+        string visit_note
+    }
+
+    SAMPLE_POINT {
+        string sample_uid PK "UUIDv7 at capture"
+        string visit_id FK
+        string plan_point_id FK "nullable = field-added"
+        string boundary_id FK "server-side PIP"
+        number lat
+        number lon
+        number gps_accuracy_m
+        number altitude_m
+        number altitude_accuracy_m
+        string position_provider
+        string position_source "gps|manual_map_pin|plan_inherited"
+        number fix_count
+        number fix_spread_m
+        number offset_from_plan_m "server-computed"
+        number bearing_from_plan_deg "server-computed"
+        string deviation_reason_code FK
+        timestamp captured_ts_device
+        number captured_ts_utc_offset
+        number device_uptime_ms
+        timestamp synced_ts
+        timestamp server_received_ts
+        string sampler_person_id FK
+        string device_id FK
+        string sync_batch_id FK
+        number depth_achieved_cm "exception only"
+        string refusal_code "nullable"
+        boolean bd_core_taken
+        string period_code
+        string spec_id FK
+        string protocol_version
+        string trs_canonical "server-derived"
+        string review_state "captured|screened|needs_review|accepted|rejected"
+        string supersedes_sample_uid FK
+        string note
+    }
+
+    SAMPLE_BAG {
+        string bag_id PK "UUIDv7"
+        string sample_uid FK
+        number bag_seq "1 in v1"
+        string bag_role "composite|bulk_density|duplicate_qc|blank"
+        number depth_top_cm
+        number depth_bottom_cm
+        string lab_id FK
+        string barcode_raw "verbatim, never normalized in place"
+        string barcode_symbology "from scanner"
+        string barcode_capture_method "scan|manual_entry|photo_recovered"
+        timestamp barcode_scanned_ts
+        boolean barcode_duplicate_flag
+        string shipment_id FK "nullable, v2"
+        boolean void_flag
+        string void_reason_code
+    }
+
+    SAMPLE_CONDITION {
+        string condition_id PK
+        string sample_uid FK
+        string condition_code FK
+        string condition_value
+        string code_set_version
+    }
+
+    MEDIA {
+        string media_id PK "UUIDv7"
+        string content_hash "SHA-256, addresses object store"
+        string sample_uid FK "nullable"
+        string bag_id FK "nullable"
+        string visit_id FK "nullable"
+        string media_role "label_photo|core_photo|site_photo|issue_photo|other"
+        timestamp capture_ts_device
+        number exif_lat
+        number exif_lon
+        timestamp exif_ts
+        number bytes
+        number width_px
+        number height_px
+        string mime_type
+        string object_key
+        string upload_state "pending|uploading|uploaded|failed"
+        timestamp uploaded_ts
+        number capture_order
+        boolean is_required_role
+    }
+
+    SAMPLE_DEFECT {
+        string defect_id PK
+        string sample_uid FK "nullable"
+        string bag_id FK "nullable"
+        string visit_id FK "nullable"
+        string defect_code FK
+        string detected_by "device|server_rule|analyst"
+        timestamp detected_ts
+        string severity "blocking|review|advisory"
+        string resolution_state "open|resolved|accepted_as_is|escalated"
+        string resolved_by
+        timestamp resolved_ts
+        string resolution_note
+    }
+
+    DEVICE {
+        string device_id PK
+        string crew_org_id
+        string device_label
+        string platform "android_pwa|ios_pwa|android_native|ios_native|zebra"
+        string os_version
+        string app_version
+        boolean is_managed "false for BYOD"
+        timestamp enrolled_ts
+        timestamp last_seen_ts
+        timestamp revoked_ts
+    }
+
+    SYNC_BATCH {
+        string sync_batch_id PK "client-generated idempotency key"
+        string device_id FK
+        timestamp client_sent_ts
+        timestamp server_received_ts
+        number record_count
+        number accepted_count
+        number rejected_count
+        string raw_payload_hash FK
+        string app_version
+        string schema_version
+    }
+
+    RAW_SYNC_PAYLOAD {
+        string raw_payload_hash PK
+        variant payload_json "verbatim, never edited"
+        timestamp received_ts
+        string device_id
+    }
+
+    LAB_RESULT {
+        string lab_result_id PK
+        string lab_file_id FK
+        string lab_id
+        string lab_barcode
+        date received_date
+        string bag_id FK "nullable until joined"
+        string match_status "full|corrected|partial|unmatched"
+        number toc_pct
+        number tc_pct
+        number cce_pct
+        number bulk_density_g_cm3
+        number om_pct
+    }
+
+    SHIPMENT {
+        string shipment_id PK
+        string crew_org_id
+        string lab_id FK
+        string carrier
+        string tracking_number
+        timestamp shipped_ts
+        timestamp received_ts
+        number bag_count_declared
+        number bag_count_received
+        string status
+    }
+
+    SHIPMENT_BAG {
+        string shipment_id FK
+        string bag_id FK
+        timestamp scanned_ts
+        string scanned_by
+    }
