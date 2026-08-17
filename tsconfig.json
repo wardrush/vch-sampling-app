@@ -4,7 +4,8 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["node", "vitest/globals"],
+    "jsx": "react-jsx",
+    "types": ["node", "vitest/globals", "vite/client", "geojson"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false,
@@ -24,8 +25,9 @@
       "@server/*": ["src/server/*"],
       "@app/*": ["src/app/*"],
       "@ingest/*": ["src/ingest/*"],
+      "@analyst/*": ["src/analyst/*"],
       "@fixtures/*": ["fixtures/*"]
     }
   },
-  "include": ["src/**/*", "netlify/**/*", "tests/**/*", "vitest.config.ts"]
+  "include": ["src/**/*", "netlify/**/*", "tests/**/*", "tools/**/*", "vitest.config.ts", "vite.config.ts"]
 }

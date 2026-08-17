@@ -1,0 +1,122 @@
+# ==============================================================================
+# netlify.toml -- F0.2. Every function and redirect this build needs is
+# declared here, once. Concurrent plan §2 F0.2: "nobody edits this file again"
+# after F0 -- true for the shape of it; entries below were reconciled against
+# the real function files Lane A (Opus) and Lane C's C11 (Opus) already shipped
+# on master, not the original guessed names.
+# ==============================================================================
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[dev]
+  command = "npm run dev"
+  targetPort = 5173
+  port = 8888
+  publish = "dist"
+  autoLaunch = false
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["fixtures/**"]
+
+# ------------------------------------------------------------------------------
+# Scheduled function (A9) -- 30s ceiling, does no real work, only kicks
+# background functions (plan v02 §6, contract addendum §4.4).
+# ------------------------------------------------------------------------------
+[functions."nightly-sweep-scheduled"]
+  schedule = "0 11 * * *"  # 11:00 UTC -- tune post-pilot once crew timezone is fixed
+
+# ==============================================================================
+# Redirects -- friendly API paths to the underlying function files.
+# Ownership prefixes (concurrent plan §4): sync-*, assignments-*, derive-*,
+# nightly-*, auth-* => Lane A. ingest-*, analyst-* => Lane C.
+# ==============================================================================
+
+# --- Lane A: down-sync / bundle (A2) -------------------------------------------
+[[redirects]]
+  from = "/v1/assignments/bundle"
+  to = "/.netlify/functions/assignments-bundle"
+  status = 200
+
+# --- Lane A: up-sync (A3-A5, shipped) ------------------------------------------
+[[redirects]]
+  from = "/v1/sync/batch"
+  to = "/.netlify/functions/sync-batch"
+  status = 200
+
+[[redirects]]
+  from = "/v1/sync/media/upload/:media_id"
+  to = "/.netlify/functions/sync-media-upload"
+  status = 200
+
+[[redirects]]
+  from = "/v1/sync/media/commit"
+  to = "/.netlify/functions/sync-media-commit"
+  status = 200
+
+# --- Lane A: defect down-sync (v1.5, endpoint pre-declared per addendum §4.2) --
+[[redirects]]
+  from = "/v1/defects/open"
+  to = "/.netlify/functions/sync-defects-open"
+  status = 200
+
+[[redirects]]
+  from = "/v1/defects/:defect_id/ack"
+  to = "/.netlify/functions/sync-defects-ack"
+  status = 200
+
+# --- Lane A: auth (A10, shipped) -- one function serves both the ingest
+# token-URL click-through and a Bearer-header device-enrolment exchange; see
+# src/shared/auth/token.ts extractToken(). --------------------------------------
+[[redirects]]
+  from = "/auth/session"
+  to = "/.netlify/functions/auth-session"
+  status = 200
+
+# The token-URL entry point itself. Must be declared AFTER the more specific
+# /ingest/* API redirects below so e.g. /ingest/validate never matches here.
+[[redirects]]
+  from = "/ingest/:token"
+  to = "/.netlify/functions/auth-session"
+  status = 200
+
+# --- Lane C: ingest (C7, C11 shipped, C12) -------------------------------------
+[[redirects]]
+  from = "/ingest/validate"
+  to = "/.netlify/functions/ingest-validate"
+  status = 200
+
+[[redirects]]
+  from = "/ingest/commit"
+  to = "/.netlify/functions/ingest-commit"
+  status = 200
+
+[[redirects]]
+  from = "/ingest/retire/:import_id"
+  to = "/.netlify/functions/ingest-retire"
+  status = 200
+
+# --- Lane C: analyst review queue (C14) ----------------------------------------
+[[redirects]]
+  from = "/analyst/review-queue"
+  to = "/.netlify/functions/analyst-review-queue"
+  status = 200
+
+[[redirects]]
+  from = "/analyst/review-queue/:item_id/resolve"
+  to = "/.netlify/functions/analyst-review-resolve"
+  status = 200
+
+# --- SPA app routes (index.html handles client-side routing) ------------------
+[[redirects]]
+  from = "/ingest/t/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
