@@ -1,14 +1,17 @@
 /**
- * Code sets. Partial — **F0.5 (Lane C, [HAIKU]) owns the full transcription**
- * of condition codes, deviation reasons and validation codes from the DDL and
- * addendum §4.2.
- *
- * What is here is only what the Opus-tagged server modules import: the defect
- * codes the pipeline and the rule harness raise by name, and the field-
- * visibility split. Adding to this file is F0.5's job, not a rewrite of it.
+ * Code sets. The defect codes below are what the Opus-tagged server modules
+ * import by name (the pipeline and the rule harness raise them, and the
+ * field-visibility split gates defect down-sync). Condition codes, deviation
+ * reasons, validation codes and outbox entity priorities — F0.5's full
+ * transcription — live in the sibling files and are re-exported below.
  */
 
 import type { DefectSeverity } from '../contract/common.js';
+
+export * from './condition.js';
+export * from './deviation.js';
+export * from './priority.js';
+export * from './validation.js';
 
 export const DEFECT_CODE = {
   BARCODE_DUPLICATE: 'BARCODE_DUPLICATE',
