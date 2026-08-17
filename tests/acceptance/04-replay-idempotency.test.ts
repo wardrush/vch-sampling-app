@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { FakeSnowflake } from '../support/fake-snowflake.js';
+import { BOTH_DIALECTS, FakeSqlClient } from './support/fake-sql-client.js';
 import { MemoryBlobStore } from '../../src/server/storage/blobs.js';
 import { MediaTicketIssuer } from '../../src/server/media/tickets.js';
 import { handleSyncBatch } from '../../src/server/sync/batch.js';
@@ -41,9 +41,9 @@ function batch(): SyncBatchRequest {
   };
 }
 
-function deps(sf: FakeSnowflake, blobs: MemoryBlobStore) {
+function deps(sf: FakeSqlClient, blobs: MemoryBlobStore) {
   return {
-    snowflake: sf.asClient(),
+    snowflake: sf,
     blobs,
     tickets: new MediaTicketIssuer({
       blobs,
@@ -54,9 +54,17 @@ function deps(sf: FakeSnowflake, blobs: MemoryBlobStore) {
   };
 }
 
-describe('criterion 4 — replaying an accepted batch', () => {
+/** The statement that writes CURATED, whichever form the backend takes. */
+const CURATED_WRITE: Record<string, string> = {
+  snowflake: 'MERGE INTO CURATED.',
+  postgres: 'INSERT INTO CURATED.',
+};
+
+describe.each(BOTH_DIALECTS)('criterion 4 on %s — replaying an accepted batch', (dialect) => {
+  const curatedWrite = CURATED_WRITE[dialect]!;
+
   it('returns the same acknowledgement and writes nothing the second time', async () => {
-    const sf = new FakeSnowflake();
+    const sf = new FakeSqlClient(dialect);
     const blobs = new MemoryBlobStore();
     const request = batch();
     const rawBody = new TextEncoder().encode(JSON.stringify(request));
@@ -65,7 +73,7 @@ describe('criterion 4 — replaying an accepted batch', () => {
     expect([...first.accepted].sort()).toEqual(['s1', 'v1']);
     expect(first.rejected).toEqual([]);
 
-    const mergesAfterFirst = sf.matching('MERGE INTO CURATED.').length;
+    const mergesAfterFirst = sf.matching(curatedWrite).length;
     expect(mergesAfterFirst).toBeGreaterThan(0);
 
     const second = await handleSyncBatch(rawBody, request, deps(sf, blobs));
@@ -76,11 +84,51 @@ describe('criterion 4 — replaying an accepted batch', () => {
     expect(second.raw_payload_hash).toBe(first.raw_payload_hash);
 
     // Nothing changed: no further statements of any kind.
-    expect(sf.matching('MERGE INTO CURATED.').length).toBe(mergesAfterFirst);
+    expect(sf.matching(curatedWrite).length).toBe(mergesAfterFirst);
+  });
+
+  it('converges rather than duplicating when the same batch is written twice', async () => {
+    // The replay short-circuit above depends on the ack blob. If it is lost —
+    // a different container, an evicted store — the write runs again, and
+    // *that* is the case the upsert has to survive: identical keys, identical
+    // statement, second run changes nothing it should not.
+    const sf = new FakeSqlClient(dialect);
+    const request = batch();
+    const rawBody = new TextEncoder().encode(JSON.stringify(request));
+    // The entity writes only: SYNC_BATCH carries a server clock by design.
+    const entityWrites = () =>
+      sf.statements
+        .filter(
+          (s) =>
+            s.sql.startsWith(`${curatedWrite}FIELD_VISIT`) ||
+            s.sql.startsWith(`${curatedWrite}SAMPLE_POINT`),
+        )
+        .map((s) => ({ sql: s.sql, binds: s.binds }));
+
+    await handleSyncBatch(rawBody, request, deps(sf, new MemoryBlobStore()));
+    const firstWrites = entityWrites();
+    expect(firstWrites).toHaveLength(2);
+
+    await handleSyncBatch(rawBody, request, deps(sf, new MemoryBlobStore()));
+    const secondWrites = entityWrites().slice(firstWrites.length);
+
+    // Byte-identical statement and binds: the write is a pure function of the
+    // payload, so a re-run addresses the same rows by the same client keys.
+    expect(secondWrites).toEqual(firstWrites);
+    for (const write of secondWrites) {
+      if (dialect === 'postgres') {
+        // Keyed on the target's primary key, every time. `DO NOTHING` would
+        // make a corrected record silently fail to land.
+        expect(write.sql).toMatch(/ON CONFLICT \(\w+\) DO UPDATE SET/);
+        expect(write.sql).not.toContain('DO NOTHING');
+      } else {
+        expect(write.sql).toContain('WHEN MATCHED');
+      }
+    }
   });
 
   it('hashes the bytes as received, not a re-serialisation', async () => {
-    const sf = new FakeSnowflake();
+    const sf = new FakeSqlClient(dialect);
     const blobs = new MemoryBlobStore();
     const request = batch();
 
@@ -102,13 +150,17 @@ describe('criterion 4 — replaying an accepted batch', () => {
       request,
       deps(sf, blobs),
     );
-    const b = await handleSyncBatch(reordered, request, deps(new FakeSnowflake(), new MemoryBlobStore()));
+    const b = await handleSyncBatch(
+      reordered,
+      request,
+      deps(new FakeSqlClient(dialect), new MemoryBlobStore()),
+    );
 
     expect(a.raw_payload_hash).not.toBe(b.raw_payload_hash);
   });
 
   it('rejects one bad record without failing the batch', async () => {
-    const sf = new FakeSnowflake();
+    const sf = new FakeSqlClient(dialect);
     const blobs = new MemoryBlobStore();
     const request = batch();
     request.records.push({
@@ -127,15 +179,15 @@ describe('criterion 4 — replaying an accepted batch', () => {
   });
 
   it('marks a warehouse failure retryable rather than losing the records', async () => {
-    const sf = new FakeSnowflake();
+    const sf = new FakeSqlClient(dialect);
     const blobs = new MemoryBlobStore();
     const request = batch();
     const rawBody = new TextEncoder().encode(JSON.stringify(request));
 
-    // RAW persist succeeds — the bytes are durable. The MERGE is what fails,
-    // and that degrades to per-record retryable rejections rather than a lost
-    // batch.
-    sf.failWhen('MERGE INTO CURATED.FIELD_VISIT', new Error('warehouse suspended'));
+    // RAW persist succeeds — the bytes are durable. The curated write is what
+    // fails, and that degrades to per-record retryable rejections rather than a
+    // lost batch.
+    sf.failWhen(`${curatedWrite}FIELD_VISIT`, new Error('warehouse suspended'));
 
     const response = await handleSyncBatch(rawBody, request, deps(sf, blobs));
 

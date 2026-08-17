@@ -46,8 +46,8 @@ const variantStyles: Record<ButtonVariant, React.CSSProperties> = {
     border: `1px solid ${SEMANTIC_COLORS.inputBorder}`,
   },
   danger: {
-    backgroundColor: '#cc0000',
-    color: SEMANTIC_COLORS.buttonPrimaryText,
+    backgroundColor: SEMANTIC_COLORS.buttonDangerBg,
+    color: SEMANTIC_COLORS.buttonDangerText,
   },
   ghost: {
     backgroundColor: 'transparent',

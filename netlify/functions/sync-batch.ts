@@ -10,7 +10,7 @@
 import type { SyncBatchRequest } from '../../src/shared/contract/sync.js';
 import { handleSyncBatch } from '../../src/server/sync/batch.js';
 import { MediaTicketIssuer } from '../../src/server/media/tickets.js';
-import { blobStore, snowflake, baseUrl, uploadSecret } from '../../src/server/env.js';
+import { blobStore, sqlClient, baseUrl, uploadSecret } from '../../src/server/env.js';
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method !== 'POST') return new Response('method not allowed', { status: 405 });
@@ -37,7 +37,9 @@ export default async function handler(request: Request): Promise<Response> {
 
   const blobs = await blobStore();
   const response = await handleSyncBatch(rawBody, parsed, {
-    snowflake: snowflake(),
+    // Whichever backend `SQL_BACKEND` selected — the sync path is written
+    // against the port, not against Snowflake.
+    snowflake: sqlClient(),
     blobs,
     tickets: new MediaTicketIssuer({
       blobs,

@@ -15,8 +15,8 @@
  */
 import type { IngestRetireRequest, IngestRetireResponse } from '../../shared/contract/ingest.js';
 import { AUDIT_ACTION } from '../../shared/codes/index.js';
-import type { SnowflakeClient } from '../../shared/snowflake/client.js';
-import { asObjects, scalar } from '../../shared/snowflake/client.js';
+import type { SqlCapabilities, SqlClient } from '../../shared/db/port.js';
+import { asObjects, scalar, SNOWFLAKE_CAPABILITIES } from '../../shared/db/port.js';
 import { hashIp } from '../../shared/auth/audit.js';
 import { uuidv7 } from 'uuidv7';
 
@@ -28,10 +28,21 @@ export interface RetireActor {
 }
 
 export interface RetireDeps {
-  snowflake: SnowflakeClient;
+  /** `SnowflakeClient` and the Postgres adapter both satisfy this structurally. */
+  snowflake: SqlClient;
   actor: RetireActor;
   ipHashSalt: string;
   now?: () => number;
+}
+
+/**
+ * Defensive fallback to full (Snowflake) capability when a client does not
+ * actually carry `.capabilities` at runtime — see the identical helper and
+ * comment in `src/ingest/commit/index.ts`; `tests/support/fake-snowflake.ts`
+ * is the shared, unowned test double this guards against.
+ */
+function capsOf(client: SqlClient): SqlCapabilities {
+  return client.capabilities ?? SNOWFLAKE_CAPABILITIES;
 }
 
 export async function retireImport(
@@ -67,21 +78,28 @@ export async function retireImport(
     };
   }
 
+  // `CURRENT_TIMESTAMP()` (Snowflake) vs `CURRENT_TIMESTAMP` (Postgres rejects
+  // the parens) and `PARSE_JSON(?)` vs `?::jsonb` — the same two dialect gaps
+  // as `/ingest/commit`, gated on the same capability flags. Nothing else in
+  // this statement set is dialect-specific: no MERGE, no QUALIFY, no ST_*.
+  const currentTimestamp = capsOf(sf).mergeInto ? 'CURRENT_TIMESTAMP()' : 'CURRENT_TIMESTAMP';
+  const jsonCast = capsOf(sf).variantJson ? 'PARSE_JSON(?)' : '?::jsonb';
+
   await sf.executeMulti(
     [
       `UPDATE CURATED.PLAN_IMPORT
           SET STATUS = 'retired', RETIRED_BY = ?, RETIRED_TS = ?, RETIRE_REASON = ?,
-              LAST_UPDATED_TS = CURRENT_TIMESTAMP()
+              LAST_UPDATED_TS = ${currentTimestamp}
         WHERE IMPORT_ID = ?`,
       importRow.plan_ids.length > 0
         ? `UPDATE CURATED.SAMPLE_PLAN
-              SET STATUS = 'superseded', LAST_UPDATED_TS = CURRENT_TIMESTAMP()
+              SET STATUS = 'superseded', LAST_UPDATED_TS = ${currentTimestamp}
             WHERE PLAN_ID IN (${importRow.plan_ids.map(() => '?').join(',')})`
         : `SELECT 1 WHERE FALSE`,
       `INSERT INTO CURATED.AUDIT_EVENT
          (EVENT_ID, EVENT_TS, ACTOR_REF, ACTOR_KIND, SURFACE, ACTION, ENTITY_TYPE,
           ENTITY_ID, DETAIL_JSON, IP_HASH, USER_AGENT_RAW)
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?, PARSE_JSON(?), ?, ?`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ${jsonCast}, ?, ?`,
     ],
     {
       binds: [
@@ -129,17 +147,18 @@ async function refuse(
 }
 
 async function writeAudit(
-  sf: SnowflakeClient,
+  sf: SqlClient,
   deps: RetireDeps,
   importId: string,
   action: string,
   detail: unknown,
 ): Promise<void> {
+  const jsonCast = capsOf(sf).variantJson ? 'PARSE_JSON(?)' : '?::jsonb';
   await sf.execute(
     `INSERT INTO CURATED.AUDIT_EVENT
        (EVENT_ID, EVENT_TS, ACTOR_REF, ACTOR_KIND, SURFACE, ACTION, ENTITY_TYPE,
         ENTITY_ID, DETAIL_JSON, IP_HASH, USER_AGENT_RAW)
-     SELECT ?, ?, ?, ?, ?, ?, ?, ?, PARSE_JSON(?), ?, ?`,
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ${jsonCast}, ?, ?`,
     {
       binds: [
         uuidv7(),
@@ -159,7 +178,7 @@ async function writeAudit(
 }
 
 async function findImport(
-  sf: SnowflakeClient,
+  sf: SqlClient,
   importId: string,
 ): Promise<{ status: string; plan_ids: string[] } | null> {
   const rows = asObjects<{ status: string; plan_ids: string | null }>(
@@ -179,7 +198,7 @@ async function findImport(
   return { status: row.status, plan_ids: planIds };
 }
 
-async function countSampledPoints(sf: SnowflakeClient, planIds: string[]): Promise<number> {
+async function countSampledPoints(sf: SqlClient, planIds: string[]): Promise<number> {
   if (planIds.length === 0) return 0;
   const result = await sf.execute(
     `SELECT COUNT(*) FROM CURATED.SAMPLE_POINT sp

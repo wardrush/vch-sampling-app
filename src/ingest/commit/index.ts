@@ -38,11 +38,22 @@ import type {
   ValidatedPlanRow,
 } from '../../shared/contract/ingest.js';
 import { DEFECT_CODE, AUDIT_ACTION } from '../../shared/codes/index.js';
-import type { SnowflakeClient } from '../../shared/snowflake/client.js';
-import { asObjects } from '../../shared/snowflake/client.js';
+import type { BindValue, SqlCapabilities, SqlClient } from '../../shared/db/port.js';
+import { asObjects, SNOWFLAKE_CAPABILITIES } from '../../shared/db/port.js';
 import { type BlobStore, importFileKey } from '../../server/storage/blobs.js';
 import { hashIp } from '../../shared/auth/audit.js';
 import { canonicalMapping, importId, importRowId, planId, planPointId, queueDefectId } from './ids.js';
+import {
+  PG_PLAN_IMPORT_SQL,
+  PG_PLAN_IMPORT_ROW_SQL,
+  PG_SUPERSEDE_PLANS_SQL,
+  PG_SAMPLE_PLAN_SQL,
+  PG_SAMPLE_PLAN_POINT_SQL,
+  PG_STAMP_ROW_POINTS_SQL,
+  PG_QUEUE_ITEMS_SQL,
+  PG_AUDIT_SQL,
+  pgLoadPriorPlansSql,
+} from './sql-postgres.js';
 import { uuidv7 } from 'uuidv7';
 
 export interface CommitActor {
@@ -54,11 +65,33 @@ export interface CommitActor {
 }
 
 export interface CommitDeps {
-  snowflake: SnowflakeClient;
+  /** `SnowflakeClient` and the Postgres adapter both satisfy this structurally. */
+  snowflake: SqlClient;
   blobs: BlobStore;
   actor: CommitActor;
   ipHashSalt: string;
   now?: () => number;
+}
+
+/** One statement plus the binds that go with *it*, not a shared global array. */
+interface StatementPlan {
+  sql: string;
+  binds: BindValue[];
+}
+
+/**
+ * Defensive, not merely convenient: `SqlCapabilities` is a required field on
+ * `SqlClient`, but `tests/support/fake-snowflake.ts` (shared, unowned by this
+ * lane, and used by tests this lane does not own — e.g.
+ * `tests/unit/schema-and-ingest.test.ts`) predates the port and casts a plain
+ * recorder object to the client type without ever setting it. Falling back to
+ * full (Snowflake) capability here — the same default `validateRows` uses for
+ * an omitted `ValidateDeps.capabilities` — means every existing caller keeps
+ * today's MERGE/PARSE_JSON/QUALIFY behaviour without that shared test double
+ * needing to change, which would be a write outside this lane's paths anyway.
+ */
+function capsOf(client: SqlClient): SqlCapabilities {
+  return client.capabilities ?? SNOWFLAKE_CAPABILITIES;
 }
 
 export async function commitImport(
@@ -143,94 +176,123 @@ export async function commitImport(
   const queueItems = buildQueueItems(rows);
 
   // ---- 2–6. One transaction ----------------------------------------------
-  const statements: string[] = [];
-  const binds: Array<string | number | boolean | null> = [];
+  // Dialect chosen once, off the port's own capability flag (never a second
+  // env var) — `mergeInto`/`variantJson` are false together on Postgres, true
+  // together on Snowflake, so either alone is an equally correct switch here.
+  const usePostgres = !capsOf(deps.snowflake).mergeInto;
+  const plan: StatementPlan[] = [];
 
-  statements.push(RAW_FILE_SQL);
-  binds.push(
-    contentHash,
-    request.raw_file.original_filename ?? null,
-    request.raw_file.mime_type ?? null,
-    request.raw_file.bytes,
-    request.raw_file.source_kind,
-    importFileKey(contentHash),
-    request.raw_file.raw_text ?? null,
-    deps.actor.ref,
-    importedTs,
-    contentHash,
-  );
+  // RAW.PLAN_IMPORT_FILE is already dialect-neutral: `INSERT … SELECT … WHERE
+  // NOT EXISTS (…)` is standard SQL Postgres accepts unchanged, so this is the
+  // one statement with no Postgres variant at all.
+  plan.push({
+    sql: RAW_FILE_SQL,
+    binds: [
+      contentHash,
+      request.raw_file.original_filename ?? null,
+      request.raw_file.mime_type ?? null,
+      request.raw_file.bytes,
+      request.raw_file.source_kind,
+      importFileKey(contentHash),
+      request.raw_file.raw_text ?? null,
+      deps.actor.ref,
+      importedTs,
+      contentHash,
+    ],
+  });
 
-  statements.push(PLAN_IMPORT_SQL);
-  binds.push(
-    id,
-    contentHash,
-    deps.actor.ref,
-    importedTs,
-    request.raw_file.source_kind,
-    request.raw_file.original_filename ?? null,
-    JSON.stringify(request.mapping),
-    request.period_code,
-    request.project_id ?? null,
-    rows.length,
-    points.length,
-    flaggedCount,
-    blockedCount,
-    JSON.stringify(plans.map((p) => p.plan_id)),
-    points.length > 0 ? 'committed' : 'staged',
-  );
+  plan.push({
+    sql: usePostgres ? PG_PLAN_IMPORT_SQL : PLAN_IMPORT_SQL,
+    binds: [
+      id,
+      contentHash,
+      deps.actor.ref,
+      importedTs,
+      request.raw_file.source_kind,
+      request.raw_file.original_filename ?? null,
+      JSON.stringify(request.mapping),
+      request.period_code,
+      request.project_id ?? null,
+      rows.length,
+      points.length,
+      flaggedCount,
+      blockedCount,
+      JSON.stringify(plans.map((p) => p.plan_id)),
+      points.length > 0 ? 'committed' : 'staged',
+    ],
+  });
 
-  statements.push(PLAN_IMPORT_ROW_SQL);
-  binds.push(JSON.stringify(rows));
+  plan.push({
+    sql: usePostgres ? PG_PLAN_IMPORT_ROW_SQL : PLAN_IMPORT_ROW_SQL,
+    binds: [JSON.stringify(rows)],
+  });
 
   if (plans.length > 0) {
     // Supersede first, then insert: a boundary must never have two released
     // plans for one period, not even for the width of a statement.
-    statements.push(SUPERSEDE_PLANS_SQL);
-    binds.push(
-      JSON.stringify(plans.map((p) => p.parent_plan_id).filter((x): x is string => !!x)),
-    );
+    plan.push({
+      sql: usePostgres ? PG_SUPERSEDE_PLANS_SQL : SUPERSEDE_PLANS_SQL,
+      binds: [JSON.stringify(plans.map((p) => p.parent_plan_id).filter((x): x is string => !!x))],
+    });
 
-    statements.push(SAMPLE_PLAN_SQL);
-    binds.push(JSON.stringify(plans), importedTs, deps.actor.ref);
+    plan.push({
+      sql: usePostgres ? PG_SAMPLE_PLAN_SQL : SAMPLE_PLAN_SQL,
+      // Postgres text order is released_ts, released_by, THEN the array (see
+      // sql-postgres.ts); Snowflake's is the array first. Each statement's
+      // binds match its own `?` order, not each other's.
+      binds: usePostgres
+        ? [importedTs, deps.actor.ref, JSON.stringify(plans)]
+        : [JSON.stringify(plans), importedTs, deps.actor.ref],
+    });
 
-    statements.push(SAMPLE_PLAN_POINT_SQL);
-    binds.push(JSON.stringify(points));
+    plan.push({
+      sql: usePostgres ? PG_SAMPLE_PLAN_POINT_SQL : SAMPLE_PLAN_POINT_SQL,
+      binds: [JSON.stringify(points)],
+    });
 
-    statements.push(STAMP_ROW_POINTS_SQL);
-    binds.push(id);
+    plan.push({
+      sql: usePostgres ? PG_STAMP_ROW_POINTS_SQL : STAMP_ROW_POINTS_SQL,
+      binds: [id],
+    });
   }
 
   if (queueItems.length > 0) {
-    statements.push(QUEUE_ITEMS_SQL);
-    binds.push(JSON.stringify(queueItems));
+    plan.push({
+      sql: usePostgres ? PG_QUEUE_ITEMS_SQL : QUEUE_ITEMS_SQL,
+      binds: [JSON.stringify(queueItems)],
+    });
   }
 
-  statements.push(AUDIT_SQL);
-  binds.push(
-    uuidv7(),
-    importedTs,
-    deps.actor.ref,
-    deps.actor.kind,
-    'ingest',
-    AUDIT_ACTION.IMPORT_COMMIT,
-    'plan_import',
-    id,
-    JSON.stringify({
-      content_hash: contentHash,
-      source_kind: request.raw_file.source_kind,
-      original_filename: request.raw_file.original_filename,
-      mapping: canonicalMapping(request.mapping),
-      row_count: rows.length,
-      rows_committed: points.length,
-      rows_flagged: flaggedCount,
-      rows_blocked: blockedCount,
-      plan_ids: plans.map((p) => p.plan_id),
-      sandbox: request.sandbox === true,
-    }),
-    hashIp(deps.actor.ip, deps.ipHashSalt),
-    deps.actor.user_agent ?? null,
-  );
+  plan.push({
+    sql: usePostgres ? PG_AUDIT_SQL : AUDIT_SQL,
+    binds: [
+      uuidv7(),
+      importedTs,
+      deps.actor.ref,
+      deps.actor.kind,
+      'ingest',
+      AUDIT_ACTION.IMPORT_COMMIT,
+      'plan_import',
+      id,
+      JSON.stringify({
+        content_hash: contentHash,
+        source_kind: request.raw_file.source_kind,
+        original_filename: request.raw_file.original_filename,
+        mapping: canonicalMapping(request.mapping),
+        row_count: rows.length,
+        rows_committed: points.length,
+        rows_flagged: flaggedCount,
+        rows_blocked: blockedCount,
+        plan_ids: plans.map((p) => p.plan_id),
+        sandbox: request.sandbox === true,
+      }),
+      hashIp(deps.actor.ip, deps.ipHashSalt),
+      deps.actor.user_agent ?? null,
+    ],
+  });
 
+  const statements = plan.map((p) => p.sql);
+  const binds = plan.flatMap((p) => p.binds);
   await deps.snowflake.executeMulti(statements, { binds });
 
   return {
@@ -379,7 +441,7 @@ function rawBytes(request: IngestCommitRequest): Uint8Array {
 }
 
 async function findExistingImport(
-  sf: SnowflakeClient,
+  sf: SqlClient,
   id: string,
 ): Promise<{ status: string; plan_ids: string[]; rows_committed: string | null; imported_ts: string | null } | null> {
   const rows = asObjects<Record<string, string | null>>(
@@ -407,23 +469,28 @@ async function findExistingImport(
 }
 
 async function loadPriorPlans(
-  sf: SnowflakeClient,
+  sf: SqlClient,
   boundaryIds: readonly string[],
   periodCode: string,
 ): Promise<Map<string, { plan_id: string; plan_version: number }>> {
   const map = new Map<string, { plan_id: string; plan_version: number }>();
   if (boundaryIds.length === 0) return map;
 
-  const rows = asObjects<Record<string, string | null>>(
-    await sf.execute(
-      `SELECT BOUNDARY_ID, PLAN_ID, PLAN_VERSION
+  const placeholders = boundaryIds.map(() => '?').join(',');
+  // The one QUALIFY in this file (schema-steward's wave report, §2): a window
+  // function in a subquery on Postgres, IX_SAMPLE_PLAN_PERIOD_BOUNDARY is what
+  // keeps it cheap there.
+  const sql = capsOf(sf).qualify
+    ? `SELECT BOUNDARY_ID, PLAN_ID, PLAN_VERSION
          FROM CURATED.SAMPLE_PLAN
         WHERE PERIOD_CODE = ?
           AND STATUS <> 'superseded'
-          AND BOUNDARY_ID IN (${boundaryIds.map(() => '?').join(',')})
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY BOUNDARY_ID ORDER BY PLAN_VERSION DESC) = 1`,
-      { binds: [periodCode, ...boundaryIds] },
-    ),
+          AND BOUNDARY_ID IN (${placeholders})
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY BOUNDARY_ID ORDER BY PLAN_VERSION DESC) = 1`
+    : pgLoadPriorPlansSql(placeholders);
+
+  const rows = asObjects<Record<string, string | null>>(
+    await sf.execute(sql, { binds: [periodCode, ...boundaryIds] }),
   );
   for (const row of rows) {
     map.set(String(row.boundary_id), {

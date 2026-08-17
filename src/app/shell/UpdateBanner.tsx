@@ -86,6 +86,6 @@ function bannerStyle(background: string): CSSProperties {
     padding: `${SPACING.sm} ${SPACING.lg}`,
     background,
     color: SEMANTIC_COLORS.textInverse,
-    fontSize: 14,
+    fontSize: 15,
   };
 }

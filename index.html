@@ -3,7 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b3d2e" />
+    <!--
+      Brand pass: #132719 is moss-900, matching vite.config.ts's PWA manifest
+      theme_color exactly. This is the one file in this agent's paths allowed
+      to carry a literal hex value — a <meta> tag cannot reference a JS token.
+    -->
+    <meta name="theme-color" content="#132719" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/icons/favicon-48.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <!--
       Manual manifest link, kept deliberately: vite-plugin-pwa's dev server
       only rewrites index.html when `devOptions.enabled` is true in
@@ -15,7 +22,7 @@
       actually resolves in dev.
     -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <title>VCH Sampler</title>
+    <title>Veteran's Carbon Holdings — Sampler</title>
   </head>
   <body>
     <div id="root"></div>

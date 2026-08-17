@@ -375,3 +375,146 @@ src/shared/map/BoundaryMap.test.tsx   new — 7 tests, the coverage gap the gate
 ```
 
 No other path touched. No dependency added or upgraded. No git command run.
+
+---
+
+## Brand pass
+
+**Trigger:** the brand-pass task, scoped to `src/shared/map/**` and `tools/pmtiles/**`
+(the latter still does not exist — B13 is wave 3, untouched). Colour only; `types.ts`'s
+prop API, `promoteId`, and the wave-1 fix are all unchanged, confirmed by re-reading
+`types.ts` before touching anything and diffing it against this report's own copy above
+— identical.
+
+### All six hex literals this module owned, before and after
+
+| Constant | File | Before (Tailwind default) | After (brand) | Named for |
+|---|---|---|---|---|
+| `NO_PACK_BACKGROUND_COLOR` | `style.ts` | `#e7e3d8` | `#efe5d4` — `sand-100` | Flat background when no tile pack is loaded (chrome) |
+| `DEFAULT_BOUNDARY_FILL` | `BoundaryMap.tsx` | `#2563eb` | `#6f8a59` — `moss-500` | Boundary area wash, 12% opacity |
+| `DEFAULT_BOUNDARY_STROKE` | `BoundaryMap.tsx` | `#1d4ed8` | `#a67c17` — `gold-700` | Boundary edge line |
+| `DEFAULT_POINT_STROKE_COLOR` | `BoundaryMap.tsx` | `#ffffff` | `#ffffff` (kept, deliberately) | Un-hovered pin/device-dot outline |
+| `HOVER_STROKE_COLOR` | `colors.ts` | `#111827` | `#1f1408` — `sand-950` | Hovered pin outline |
+| `DEFAULT_STATUS_COLOR` | `colors.ts` | `#6b7280` | `#d4a832` — `gold-500` | Fallback point fill for an unrecognised status |
+| `DEFAULT_DEVICE_COLOR` | `BoundaryMap.tsx` | `#2563eb` (aliased to `DEFAULT_BOUNDARY_FILL`) | `#2f5332` — `moss-700`, own constant | Device-position dot + accuracy ring |
+
+Verified no hex literal remains outside these seven named constants:
+`grep -rn "#[0-9a-fA-F]\{3,8\}" src/shared/map/ --include="*.ts" --include="*.tsx" | grep -v ".test."`
+returns exactly these seven lines, each a `const`/`export const` declaration, none
+referenced inline elsewhere (every use site reads the constant by name — unchanged from
+the isolation done in the post-gate fix, just repointed at new values).
+
+`types.ts` was re-checked and never held a hex literal — the prop API only ever *carries*
+caller-supplied colour strings (`MapBoundary.style.fillColor` etc., `statusColors`); it
+does not choose any colour itself. No change needed or made there.
+
+### Which values mirror the app's UI tokens
+
+I did not import `src/app/components/tokens/colors.ts` (per instruction — wrong
+dependency direction) and did not read it, so there is nothing to actively reconcile
+against right now; the values above are transcribed directly from the swatch list in the
+task prompt, not derived from that file. For whoever reconciles the two later: this
+module mirrors `sand-100`, `sand-950`, `moss-500`, `moss-700`, and `gold-500`/`gold-700`
+exactly as given (no tinting/darkening applied) — if `tokens/colors.ts` names the same
+five swatches under different constant names, the hex values should already match
+byte-for-byte; if they don't match, one of the two transcriptions has a typo, not a
+design disagreement.
+
+### The judgement calls — where brand and legibility pulled apart, and what I chose
+
+1. **Boundary fill vs. boundary line are not the same decision, and the task's own "safe
+   list" reflects that.** The prompt names "boundary fills" as brand-safe but does not
+   name boundary *strokes* — I read that omission as deliberate. A translucent (12%
+   opacity) area wash blending toward the ground it represents is thematically fine and
+   low-risk; a 2px edge *line* is exactly the kind of shape that has to contrast with
+   whatever the aerial photo underneath happens to be, the same problem named for point
+   status. I treated the boundary stroke with the same "must contrast with green/brown
+   ground" standard as a point pin, not the "brand is safe" standard given to the fill,
+   and picked `gold-700` — darker/richer than the `gold-500` used for the point
+   fallback, so a boundary edge and an unclassified-status pin stay visually distinguishable
+   by shade as well as by shape. **This is my judgement call, not a specified value** —
+   if design review disagrees and wants the boundary line to stay in the moss/sand family
+   for brand consistency at the cost of some edge legibility, that is a real trade-off,
+   not an error to fix.
+
+2. **Two brand-safe choices sit close enough in hue to name explicitly: `gold-500`
+   (unclassified-status point fallback) and `gold-700` (boundary stroke).** Both come from
+   the same guidance ("gold is a genuinely strong signal against green/brown ground") but
+   serve different features. They are distinguishable by shade and by shape (filled
+   circle vs. line) in practice, but I would not call this fully resolved — it is the one
+   place in this pass where the brand palette's small size for "things that must contrast
+   with green and brown" (effectively: gold, and not much else) shows. If a future status
+   in the sampler or ingest vocabulary needs a caller-supplied colour that is *also*
+   gold-family (plausible — amber/gold reads as "attention" in most UI conventions, and
+   ingest's own `flagged` status already uses an amber `#f59e0b` in the test fixtures),
+   that caller-owned colour and this module's boundary-stroke default would sit in the
+   same visual family on the same screen. This module cannot resolve that — status colours
+   are the caller's vocabulary by design (`types.ts` module doc) — so I'm naming it rather
+   than quietly hoping it doesn't collide.
+
+3. **`DEFAULT_STATUS_COLOR` (the unrecognised-status fallback) is the one point colour
+   this module actually owns**, since every other point colour is caller-supplied via
+   `statusColors`. I read the task's "legibility wins for point status" guidance as
+   applying most directly here, and chose `gold-500` over a brand-neutral (e.g.
+   `sand-700`) specifically because an unrecognised status is worth surfacing as visually
+   distinct — it usually means a caller bug or an unmapped value — rather than blending
+   into a muted, ground-coloured neutral. A `sand`-family neutral would have been the
+   "safer," lower-attention choice; I chose the higher-attention one deliberately and am
+   flagging that choice rather than treating it as obviously correct.
+
+4. **Pin outline: kept literal white, did not force it into the swatch list.** The task
+   text itself names "white or `sand-950`" as the two legible outline options — I used
+   both, one per state (`DEFAULT_POINT_STROKE_COLOR` = white for un-hovered,
+   `HOVER_STROKE_COLOR` = `sand-950` for hovered), rather than picking one and discarding
+   the state-distinction the two colours currently provide. White is not one of the
+   fourteen named swatches in the palette block, but it is explicitly sanctioned by this
+   task's own guidance text as a legibility choice, not a leftover Tailwind default I
+   failed to isolate — said so in-line in the code comment at the point of declaration so
+   this doesn't read as an oversight on a future pass.
+
+5. **Device marker got its own constant instead of staying aliased to the boundary
+   fill.** Pre-brand-pass it was `DEFAULT_DEVICE_COLOR = DEFAULT_BOUNDARY_FILL` ("one
+   placeholder blue, not two" — reasonable when both were arbitrary). The task's safe
+   list names "the accuracy ring" and "boundary fills" as two separate items, which reads
+   as permission (not requirement) to give them different brand values, and I took it:
+   `moss-700` for the device marker, darker/more saturated than the `moss-500` boundary
+   fill, so "you are here" and "this is the boundary" don't collapse into the same tone
+   on screen. This carries the same green-on-green risk against actual grass/vegetation
+   that the boundary fill does — mitigated in practice by the white/`sand-950` stroke
+   ring every circle layer already carries (device dot included), but not eliminated. If
+   that turns out to be insufficient in real field testing, the fix is a hue change here,
+   not an architecture change — it's one named constant.
+
+### What I did not touch
+
+- `MapBoundary.style`/`statusColors` — caller-supplied colour paths, unchanged, as
+  instructed. A caller (B5, C10) can override every default named above per-boundary or
+  per-status; nothing here forces brand colours onto caller data.
+- `LONG_PRESS_MS`, `SINGLE_POINT_FALLBACK_ZOOM`, `FIT_BOUNDS_PADDING_PX` and the other
+  non-colour placeholders named in the original wave-1 report's "Stopped, and why" —
+  out of scope for a colour-only pass, still open.
+- `tools/pmtiles/**` — still does not exist; B13 is wave 3, not touched.
+
+### Gate, this pass
+
+| Command | Result |
+|---|---|
+| `npm run typecheck` | 0 errors |
+| `npm test` | 20 test files, **166 passed, 1 skipped (167 total)** — identical count to the post-gate-fix run; no test weakened, none needed a hex-literal update because every assertion that touches these colours does so through the exported constant, not a hardcoded string (checked `colors.test.ts` and `style.test.ts` line by line before concluding this) |
+| `npm run build` | succeeds, 25 precache entries, `dist/sw.js` generated |
+
+### Files touched this pass
+
+```
+src/shared/map/style.ts        modified — NO_PACK_BACKGROUND_COLOR value + doc comment
+src/shared/map/colors.ts       modified — DEFAULT_STATUS_COLOR, HOVER_STROKE_COLOR values + doc comments
+src/shared/map/BoundaryMap.tsx modified — DEFAULT_BOUNDARY_FILL, DEFAULT_BOUNDARY_STROKE,
+                                DEFAULT_DEVICE_COLOR values (DEFAULT_DEVICE_COLOR un-aliased
+                                to its own constant); DEFAULT_POINT_STROKE_COLOR value unchanged,
+                                comment updated; block comment added explaining all six
+.claude/fleet/reports/map-surface-wave1.md   this section appended
+```
+
+No other path touched. No dependency added or upgraded. No git command run. `types.ts`
+(the prop API), `promoteId`, and every non-colour behaviour are unchanged from the
+post-gate-fix state, confirmed by inspection before and after.

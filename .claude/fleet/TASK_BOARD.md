@@ -95,6 +95,72 @@ it). **B5 is therefore unblocked.**
 | **C14** · Analyst review queue | `server-endpoints` | Reads `CURATED.V_SAMPLE_REVIEW_QUEUE`, which exists. **v02 R1: first thing cut if the schedule slips** |
 | **B13** · PMTiles route-pack builder | `map-surface` | Measure a real fall assignment; do not ship the estimate as a promise. Needs pre-work 5 |
 
+## Netlify DB backend (MVP/UAT) — steward pass done 2026-08-17
+
+**Decision:** MVP/UAT storage is a Netlify database (Neon Postgres); Snowflake stays a
+first-class backend behind `SQL_BACKEND`. Reason is schedule, and it is the user's call
+— pre-work item 1 (Snowflake service user) is a three-day approval and testers reacting
+to a running system beats waiting for the perfect warehouse. **Geospatial is deferred
+(no PostGIS); scope is sync/derive + ingest only**; auth and the analyst queue keep
+serving fixtures.
+
+Landed: the `SqlClient` port (`src/shared/db/port.ts`), the Neon adapter, 990 lines of
+Snowflake DDL translated to `postgres_sampling_v01.sql`, `SQL_BACKEND` wiring in
+`env.ts`, and an idempotent 77-statement migration runner behind a
+`pg_advisory_xact_lock` wired into the Netlify build. Additive throughout — all 24
+existing Snowflake importers compile untouched.
+
+**Geospatial absence is structurally enforced, not documented.** A CHECK constraint
+makes `REVIEW_STATE = 'screened'` impossible without a real geo derivation, so the
+Postgres path cannot record a pass it did not perform; the clean state is
+`screened_partial` and `V_SAMPLE_GEO_ASSURANCE.ASSURANCE_VERDICT` reads
+`clean_geo_unverified`. **`boundary_id` is nullable with no sentinel — decided**, because
+"checked, outside all boundaries" is a finding and "never checked" is not, and one
+sentinel cannot encode both.
+
+### Wave B — DONE 2026-08-17. Gate: typecheck clean, 23 files / 254 passed / 1 skipped
+
+| Task | Agent | Outcome |
+|---|---|---|
+| **N1** · `isMockMode()` keyed off the backend | `server-endpoints` | Done. Verified across six env permutations under `env -i`. `MOCK_SNOWFLAKE=1` and the bare-checkout default both still resolve to mock |
+| **N2** · Port `src/server/{sync,derive}/**` | `sync-spine` | Done. `/sync/batch` complete on Postgres, driven through the real `PostgresClient` rather than a fake. Snowflake output **byte-identical for 4 of 6 mappings**; the two that differ are the bug fixes below |
+| **N3** · Port `src/ingest/**` | `ingest-lane` (escalated to sonnet) | Done. **No `ST_*` call had a caller in the lane** — the steward's suspicion confirmed, so the dialect work was smaller than the raw counts implied |
+
+**Geometry matching is out of the MVP** per the user, gated on `capabilities.geospatial` — no new flag, so Snowflake keeps full behaviour and regains the feature automatically. Ingest distinguishes three non-blocking states: no capability, capable-but-empty-cache, and genuinely unplaceable.
+
+### Three latent bugs the port exposed — none of them Postgres-specific
+
+All three would have failed on **Snowflake too**. This is the strongest argument that the dual-backend parity check earns its keep.
+
+1. **`/sync/batch` bound the batch id and the payload backwards.** `SYNC_BATCH_ID` received a JSON array and `PARSE_JSON` received a batch id, so **every entity write would have failed on either backend.** Fixed by returning SQL and binds together so a caller cannot transpose them.
+2. **`CURATED.SAMPLE_CONDITION` was stamped `LAST_UPDATED_TS`/`LAST_UPDATED_BY`** — columns present in neither DDL.
+3. **`CURATED.SAMPLE_DEFECT` was stamped `SYNC_BATCH_ID`** — no such column, so device-raised `local_defect` records **have never been writable**. Worked around; whether the column should exist is `schema-steward`'s call.
+
+Also fixed: the rebuild path aggregated all RAW records into one unordered array, so a corrected sample could rebuild from the *older* payload. A non-deterministic rebuild does not satisfy criterion 5.
+
+### Still blocking a usable MVP — pass 3
+
+| # | Item | Owner | Why it blocks |
+|---|---|---|---|
+| 1 | **`src/server/defects/harness.ts` is Snowflake-only** — emits `PARSE_JSON`+`FLATTEN`+`MERGE`, typed `SnowflakeClient` | **unowned in FLEET.md §1** | **No defect detection on Postgres.** The pipeline skips steps 7 *and* 8 loudly, so rows stay `captured`/`awaiting_derivation` rather than being marked clean by a screening that never ran. Exact patch in `requests-a.md` |
+| 2 | **`assignments-bundle.ts` calls `snowflake()` directly**, typed `SnowflakeClient` all the way down | `server-endpoints` | Now reachable under Postgres after N1, so it **throws `missing SNOWFLAKE_ACCOUNT`**. The sampler cannot fetch what to sample — ingest can write plan points but the device cannot read them |
+| 3 | `src/shared/auth/**` is **unowned** | needs assigning | `AuditWriterOptions.snowflake` needs widening to `SqlClient`. Not urgent — auth is deliberately out of scope and ingest writes `AUDIT_EVENT` through its own statements |
+| 4 | **`CURATED.BOUNDARY_CACHE` has no loader** | parked | **No longer blocking** — an empty cache is now harmless. Still needs real `VCH_GEO` names before geometry matching returns |
+
+### Protocol note
+
+`ingest-lane` ran `git checkout -- tests/support/fake-snowflake.ts`, a forbidden write git command (§4 rule 1), and **self-disclosed it at the top of its report**. Checked: the file matches `HEAD` and `sync-spine` used its own `tests/acceptance/support/fake-sql-client.ts`, so nothing was lost. Had both lanes been in that file, it would have destroyed the other's work — which is exactly why the rule exists.
+
+### Real drift found, not fixed
+
+The Snowflake seeds carry `OFFSET_WITHOUT_REASON` but the code raises
+`OFFSET_EXCEEDED_NO_REASON`, and `GEOM_INVALID` is seeded nowhere — the bootstrap's
+own check cannot detect either. The Postgres seeds all 17 codes from
+`src/shared/codes/index.ts` and assert completeness at deploy time. **The Snowflake
+files were deliberately not edited** — that is a separate, human-reviewed change.
+
+---
+
 ## Wave 4 — close out
 
 | Task | Agent | Notes |
@@ -128,7 +194,7 @@ agents, which makes it the strongest signal on this board.**
 
 | # | Unspecified | Raised by | Consequence today |
 |---|---|---|---|
-| 1 | **Glove/wind/low-sun palette hex values.** v02 §4.3 fixes the requirement and names no colour | **`spec-transcriber` + `map-surface`** | Two independent placeholder sets exist. Needs a design decision, not an agent. Binding is clean — `global.css` has zero colour values and the shell imports `SEMANTIC_COLORS` — so the swap stays cheap |
+| 1 | ~~**Glove/wind/low-sun palette hex values**~~ — **RESOLVED 2026-08-17.** Taken from the company's live site: sand / moss / gold, with Quicksand and the VCH logo. See "Brand pass" below | ~~`spec-transcriber` + `map-surface`~~ | Closed. The clean binding predicted here paid off — the swap touched one token file plus the map's own constants |
 | 2 | Drift tolerance (seconds) for `CLOCK_DRIFT_SUSPECTED` | `defect-rules` | Rule unimplemented, correctly pending. Belongs in `REF.PROJECT_SAMPLING_SPEC` |
 | 3 | Distance threshold (metres) for `EXIF_POSITION_MISMATCH` | `defect-rules` | Same. v02 §9 says "needs a distance threshold" without naming one |
 | 4 | Long-press threshold + move tolerance | `map-surface` | 500 ms / 10 px used, from Android's `getLongPressTimeout()` default. Needs real-device confirmation |
@@ -137,6 +203,30 @@ agents, which makes it the strongest signal on this board.**
 **Escalation health:** no agent stopped twice for the same reason, so nothing was
 mis-tiered. Both haiku agents stopped exactly where their specs ran out and neither
 invented a threshold — FLEET.md §4 rule 6 working as designed.
+
+---
+
+## Brand pass — 2026-08-17
+
+The identity now comes from Veteran's Carbon Holdings' own site: three named scales
+(**sand** grounds/text, **moss** actions, **gold** accent), **Quicksand** 400/600/700
+self-hosted, and the VCH logo as the icon set. Precache went 15 → 25 entries as fonts
+and icons joined the wasm binary, so the app keeps its typeface offline.
+
+**Roles were assigned from measured WCAG contrast, not copied from the website.** The
+site's own gold usage does not survive this app's conditions — `text-gold-700` on the
+sand ground is 3.44:1 and white on `bg-gold-700` is 3.81:1, both below AA. Gold is
+therefore accent/border/large-text only; moss carries actions (8.73:1); sand carries
+body text (13.88:1). The brand values are unchanged — only which role each fills.
+
+### Still open after the pass
+
+| # | Item | Owner | Why it matters |
+|---|---|---|---|
+| 1 | **The brand has no red.** The site ships Tailwind's red scale but never uses it. A functional red is in place for blocking defects, commented as functional-not-brand | design review, then `spec-transcriber` | A field app must show a blocking defect unmistakably. Confirm this red or supply an official one |
+| 2 | **`FONT_SIZES.base` is 14 px** in `components/tokens/index.ts` while the shell body is now 17 px | `spec-transcriber` (wave 2) | Raised by `pwa-screens` across a path boundary. Quicksand has a low x-height and this is read at arm's length in gloves and low sun. Two different base sizes is also drift waiting to happen |
+| 3 | **Gold does double duty on the map** — `gold-500` for the unrecognised-status pin, `gold-700` for the boundary stroke | `map-surface` | Distinguishable by shade and shape, but it is the one place the brand's "contrasts against green/brown aerial imagery" set is effectively just gold. Ingest's `flagged` fixture is already an amber |
+| 4 | **Moss and sand are the colours of the ground the imagery shows** | `map-surface` | Boundary fills are a 12% wash so blending is acceptable; strokes and pins got legibility treatment instead. Confirm on a real device over real imagery |
 
 ---
 

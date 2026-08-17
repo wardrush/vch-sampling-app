@@ -7,7 +7,7 @@ import type { IngestRetireRequest } from '../../src/shared/contract/ingest.js';
 import { retireImport } from '../../src/ingest/retire/index.js';
 import { requireSession } from '../../src/shared/auth/session.js';
 import { clientIp } from '../../src/shared/auth/audit.js';
-import { sessionSecret, snowflake } from '../../src/server/env.js';
+import { sessionSecret, sqlClient } from '../../src/server/env.js';
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
@@ -31,7 +31,7 @@ export default async function handler(request: Request): Promise<Response> {
   const result = await retireImport(
     { import_id: importId, reason },
     {
-      snowflake: snowflake(),
+      snowflake: sqlClient(),
       actor: {
         ref: session.sub,
         kind: session.kind,

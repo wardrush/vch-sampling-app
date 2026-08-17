@@ -6,7 +6,49 @@
  * this file is exactly what would make the pending palette decision (v02
  * §4.3 fixes the *requirement*, not the hex — see the wave-1 report) a
  * two-file change instead of one.
+ *
+ * Brand pass — Quicksand, self-hosted, never Google Fonts.
+ *
+ * The three weights the app actually uses (regular body copy, 600 semibold
+ * for labels/nav, 700 bold for headings — matching `FONT_WEIGHTS` in
+ * `components/tokens/index.ts`) are vendored under `public/fonts/` as
+ * `.woff2` with a `.woff` fallback for the handful of Android WebViews still
+ * out there without woff2 support. `font-display: swap` so a cold start on a
+ * mid-range Android never blocks first paint on the font — system-ui renders
+ * immediately, Quicksand swaps in once decoded, and nothing here ever fetches
+ * fonts.googleapis.com: v02's "capture never blocks on the network" applies
+ * to the typeface exactly as much as to sync.
  */
+
+@font-face {
+  font-family: 'Quicksand';
+  src:
+    url('/fonts/quicksand-400.woff2') format('woff2'),
+    url('/fonts/quicksand-400.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Quicksand';
+  src:
+    url('/fonts/quicksand-600.woff2') format('woff2'),
+    url('/fonts/quicksand-600.woff') format('woff');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Quicksand';
+  src:
+    url('/fonts/quicksand-700.woff2') format('woff2'),
+    url('/fonts/quicksand-700.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
   color-scheme: light;
@@ -25,11 +67,22 @@ body,
 
 body {
   font-family:
+    'Quicksand',
     system-ui,
     -apple-system,
     'Segoe UI',
     Roboto,
     sans-serif;
+  /*
+   * Quicksand is a rounded geometric sans with a relatively low x-height.
+   * This app is read at arm's length, in wind, in low sun, by someone
+   * wearing gloves — so the baseline is set a notch above a typical 16px
+   * web default rather than switching typeface. Component-level sizes
+   * (`FONT_SIZES` in `components/tokens/index.ts`, spec-transcriber's) are
+   * unaffected by this — they set explicit pixel values — but anything that
+   * inherits body size (this shell's own chrome included) gets the benefit.
+   */
+  font-size: 17px;
   -webkit-tap-highlight-color: transparent;
   /* Gloved, wind-blown, one-handed use — a scroll gesture on a boundary map
      or a photo tile must never trigger the browser's own pull-to-refresh or

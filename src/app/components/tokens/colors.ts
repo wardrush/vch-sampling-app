@@ -1,112 +1,110 @@
 /**
  * Design tokens for the sampling app.
- * Glove/wind/low-sun palette — optimized for field conditions with high contrast
- * and readability in bright outdoor light.
+ * Veteran's Carbon Holdings brand palette — sand, moss, and gold scales
+ * optimized for field conditions with high contrast and readability
+ * in bright outdoor light, glove use, and wind.
  *
  * Token names published for consumption by pwa-screens in src/app/styles/global.css
+ * Font: Quicksand (400/600/700)
  */
 
-// Color palette - placeholder values pending design finalization
-// These token names are canonical; hex values should be coordinated with design review
+// Brand color scales from Veteran's Carbon Holdings corporate identity
+// Note: Scale gaps (e.g., no sand-500, no moss-200/400/600) are intentional per brand spec
 export const COLORS = {
-  // Neutral grays
-  neutral900: '#1a1a1a',
-  neutral800: '#2d2d2d',
-  neutral700: '#404040',
-  neutral600: '#595959',
-  neutral500: '#808080',
-  neutral400: '#a6a6a6',
-  neutral300: '#cccccc',
-  neutral200: '#e6e6e6',
-  neutral100: '#f5f5f5',
-  neutral0: '#ffffff',
+  // Sand scale — neutral ground
+  sand50: '#f8f3ea',
+  sand100: '#efe5d4',
+  sand200: '#e1d2b8',
+  sand300: '#c7b08a',
+  sand400: '#af8f67',
+  sand600: '#755b3d',
+  sand700: '#5c462f',
+  sand800: '#46331f',
+  sand900: '#312213',
+  sand950: '#1f1408',
 
-  // Primary action colors
-  primary700: '#004d99',
-  primary600: '#0066cc',
-  primary500: '#0080ff',
-  primary400: '#4da6ff',
-  primary300: '#99ccff',
+  // Moss scale — primary action color
+  moss100: '#dfe8d5',
+  moss300: '#afc49a',
+  moss500: '#6f8a59',
+  moss700: '#2f5332',
+  moss800: '#203b24',
+  moss900: '#132719',
 
-  // Success colors (e.g., sampled points, valid uploads)
-  success700: '#1b5c0f',
-  success600: '#2d8a1a',
-  success500: '#40b824',
-  success400: '#6dd447',
+  // Gold scale — accent and large text only
+  // WARNING: gold-700 and gold-500 fail outdoor legibility per WCAG contrast audits
+  // and are demoted to accent, large text, and borders only
+  gold500: '#d4a832',
+  gold700: '#a67c17',
+  gold800: '#86640f',
 
-  // Warning colors (e.g., offset exceeded, deviation needed)
-  warning700: '#994c00',
-  warning600: '#cc6600',
-  warning500: '#ff8800',
-  warning400: '#ffaa33',
+  // Functional red — not brand-sanctioned but required for blocking defects and errors
+  // TODO: Design review and official brand red pending
+  red600: '#cc0000',
+  red700: '#800000',
 
-  // Error colors (e.g., blocking defects, missing required fields)
-  error700: '#800000',
-  error600: '#cc0000',
-  error500: '#ff3333',
-  error400: '#ff6666',
-
-  // Info colors (e.g., advisory defects, information badges)
-  info700: '#003d99',
-  info600: '#0052cc',
-  info500: '#0066ff',
-  info400: '#4d94ff',
+  // White (used for inverse text and form backgrounds)
+  white: '#ffffff',
 } as const;
 
 // Semantic token aliases for different contexts
 export const SEMANTIC_COLORS = {
   // Text colors
-  textPrimary: COLORS.neutral900,
-  textSecondary: COLORS.neutral600,
-  textTertiary: COLORS.neutral500,
-  textInverse: COLORS.neutral0,
-  textDisabled: COLORS.neutral400,
+  textPrimary: COLORS.sand900,
+  textSecondary: COLORS.sand700,
+  textTertiary: COLORS.sand600,
+  textInverse: COLORS.white,
+  textDisabled: COLORS.sand400,
 
   // Background colors
-  bgPrimary: COLORS.neutral0,
-  bgSecondary: COLORS.neutral100,
-  bgTertiary: COLORS.neutral200,
-  bgInverse: COLORS.neutral900,
-  bgDisabled: COLORS.neutral200,
+  bgPrimary: COLORS.sand50,
+  bgSecondary: COLORS.sand100,
+  bgTertiary: COLORS.sand200,
+  bgInverse: COLORS.moss900,
+  bgDisabled: COLORS.sand200,
 
   // Interactive element colors
-  buttonPrimaryBg: COLORS.primary600,
-  buttonPrimaryText: COLORS.neutral0,
-  buttonSecondaryBg: COLORS.neutral200,
-  buttonSecondaryText: COLORS.neutral900,
-  buttonDisabledBg: COLORS.neutral300,
-  buttonDisabledText: COLORS.neutral500,
+  buttonPrimaryBg: COLORS.moss700,
+  buttonPrimaryText: COLORS.white, // 8.73:1 contrast
+  buttonSecondaryBg: COLORS.sand100,
+  buttonSecondaryText: COLORS.sand900,
+  buttonDangerBg: COLORS.red600,
+  buttonDangerText: COLORS.white,
+  buttonDisabledBg: COLORS.sand200,
+  buttonDisabledText: COLORS.sand600,
 
   // Input and form colors
-  inputBg: COLORS.neutral0,
-  inputBorder: COLORS.neutral400,
-  inputBorderFocus: COLORS.primary600,
-  inputBorderError: COLORS.error600,
-  inputText: COLORS.neutral900,
-  inputPlaceholder: COLORS.neutral500,
+  inputBg: COLORS.white,
+  inputBorder: COLORS.sand300,
+  inputBorderFocus: COLORS.moss700,
+  inputBorderError: COLORS.red600,
+  inputText: COLORS.sand900,
+  inputPlaceholder: COLORS.sand600, // must stay legible in low sun
 
   // Status chip colors
-  chipSuccessBg: COLORS.success500,
-  chipSuccessText: COLORS.neutral0,
-  chipWarningBg: COLORS.warning500,
-  chipWarningText: COLORS.neutral0,
-  chipErrorBg: COLORS.error500,
-  chipErrorText: COLORS.neutral0,
-  chipInfoBg: COLORS.info500,
-  chipInfoText: COLORS.neutral0,
-  chipNeutralBg: COLORS.neutral300,
-  chipNeutralText: COLORS.neutral900,
+  chipSuccessBg: COLORS.moss100,
+  chipSuccessText: COLORS.moss900,
+  chipWarningBg: '#f5e6c0', // gold-tinted ground per brand spec
+  chipWarningText: COLORS.gold800,
+  chipErrorBg: COLORS.red600,
+  chipErrorText: COLORS.white,
+  chipInfoBg: COLORS.sand100,
+  chipInfoText: COLORS.sand900,
+  chipNeutralBg: COLORS.sand100,
+  chipNeutralText: COLORS.sand700,
 
   // Border colors
-  borderDefault: COLORS.neutral300,
-  borderStrong: COLORS.neutral600,
-  borderSubtle: COLORS.neutral200,
+  borderDefault: COLORS.sand300,
+  borderStrong: COLORS.sand400,
+  borderSubtle: COLORS.sand200,
 
   // Divider colors
-  divider: COLORS.neutral200,
+  divider: COLORS.sand200,
 
-  // Shadow/focus colors
-  focusRing: COLORS.primary600,
+  // Focus ring — gold accent, non-text use (ring, not label)
+  focusRing: COLORS.gold700,
+
+  // Shadows
   shadowLight: 'rgba(0, 0, 0, 0.05)',
   shadowMedium: 'rgba(0, 0, 0, 0.1)',
   shadowStrong: 'rgba(0, 0, 0, 0.15)',

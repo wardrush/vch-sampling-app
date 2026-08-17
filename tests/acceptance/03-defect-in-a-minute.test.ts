@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { FakeSnowflake } from '../support/fake-snowflake.js';
+import { FakeSqlClient } from './support/fake-sql-client.js';
 import { defectId, runDefectRules } from '../../src/server/defects/harness.js';
 import { duplicateBarcodeRule, noGpsFixRule } from '../../src/server/defects/rules/index.js';
 import { runDerivationPipeline } from '../../src/server/derive/pipeline.js';
@@ -117,8 +118,8 @@ describe('criterion 3 — one defect row each, and only one', () => {
   });
 
   it('raises POINT_OUTSIDE_BOUNDARY from the pipeline on the same id scheme', async () => {
-    const sf = new FakeSnowflake();
-    await runDerivationPipeline('batch-1', { snowflake: sf.asClient(), harness: { rules: [] } });
+    const sf = new FakeSqlClient('snowflake');
+    await runDerivationPipeline('batch-1', { snowflake: sf, harness: { rules: [] } });
 
     // The code travels as a bind, not as SQL text — one statement shape
     // serves every code the pipeline raises.
@@ -135,9 +136,9 @@ describe('criterion 3 — one defect row each, and only one', () => {
   });
 
   it('runs the pipeline steps in contract order', async () => {
-    const sf = new FakeSnowflake();
+    const sf = new FakeSqlClient('snowflake');
     const result = await runDerivationPipeline('batch-1', {
-      snowflake: sf.asClient(),
+      snowflake: sf,
       harness: { rules: [] },
     });
 
@@ -149,11 +150,15 @@ describe('criterion 3 — one defect row each, and only one', () => {
       'defect_rules',
       'review_state',
     ]);
+    // A geospatial backend skips nothing and leaves no rule un-run.
+    expect(result.steps_skipped).toEqual([]);
+    expect(result.rules_not_run).toEqual([]);
+    expect(result.clean_review_state).toBe('screened');
   });
 
   it('never overwrites an analyst-accepted review state', async () => {
-    const sf = new FakeSnowflake();
-    await runDerivationPipeline('batch-1', { snowflake: sf.asClient(), harness: { rules: [] } });
+    const sf = new FakeSqlClient('snowflake');
+    await runDerivationPipeline('batch-1', { snowflake: sf, harness: { rules: [] } });
 
     const reviewState = sf.matching('REVIEW_STATE = CASE')[0];
     expect(reviewState).toBeDefined();

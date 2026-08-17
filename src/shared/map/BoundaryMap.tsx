@@ -32,14 +32,59 @@ const DEVICE_SOURCE_ID = 'boundary-map-device-position';
 const DEVICE_ACCURACY_LAYER_ID = 'boundary-map-device-accuracy';
 const DEVICE_DOT_LAYER_ID = 'boundary-map-device-dot';
 
-const DEFAULT_BOUNDARY_FILL = '#2563eb';
-const DEFAULT_BOUNDARY_STROKE = '#1d4ed8';
+/**
+ * Brand colours, isolated here as the single place `BoundaryMap.tsx` names
+ * a hex literal (mirrors the pattern in `colors.ts`/`style.ts` — one named
+ * constant per colour, referenced nowhere inline). See the brand-pass
+ * report (`.claude/fleet/reports/map-surface-wave1.md`, "Brand pass") for
+ * the full reasoning; summary of the judgement calls:
+ *
+ * - The basemap is raster satellite imagery — green/brown/tan ground.
+ *   `moss` and `sand` are the *colours of that ground*, so they are safe
+ *   for chrome and low-opacity area fills but a bad choice for anything
+ *   that must read as a distinct edge or point against arbitrary aerial
+ *   photography.
+ * - `DEFAULT_BOUNDARY_FILL` (`moss-500`) is a translucent area wash
+ *   (12% opacity) — brand-safe per the task's own guidance, and blending
+ *   toward the ground is an acceptable (even thematically apt) trade for
+ *   a fill, unlike a line or a pin.
+ * - `DEFAULT_BOUNDARY_STROKE` (`gold-700`) is a judgement call, not a
+ *   transcription: the *edge line* is a thin (2px) shape that has to read
+ *   against whatever the imagery underneath happens to be, so it gets the
+ *   same "must contrast with green/brown ground" treatment as point
+ *   status, not the "brand is safe" treatment given to the fill. `gold-700`
+ *   (darker than the `gold-500` used for the point fallback below) keeps
+ *   boundary edges and unclassified-status pins visually distinguishable
+ *   by shade as well as by shape (line vs. filled circle) — flagged in the
+ *   report as the one place two brand-safe choices sit close enough in hue
+ *   that they are worth calling out rather than assuming apart.
+ * - `DEFAULT_POINT_STROKE_COLOR` (white) and `HOVER_STROKE_COLOR`
+ *   (`sand-950`, in `colors.ts`) are the two outline colours the task's own
+ *   guidance names as the legible options for a pin ring against arbitrary
+ *   ground ("white or sand-950") — used as the two states (un-hovered /
+ *   hovered) rather than picked arbitrarily.
+ * - `DEFAULT_DEVICE_COLOR` (`moss-700`) is its own constant, not aliased to
+ *   the boundary fill colour as it was pre-brand-pass — the task's safe
+ *   list names "the accuracy ring" and "boundary fills" separately, and a
+ *   darker, more saturated green than the boundary wash keeps "you are
+ *   here" visually distinct from "this is the boundary" even though both
+ *   are moss-family. Carries the same green-on-green caveat as the
+ *   boundary fill; mitigated in practice by the white/`sand-950` stroke
+ *   ring every circle layer in this file already gets.
+ */
+const DEFAULT_BOUNDARY_FILL = '#6f8a59';
+const DEFAULT_BOUNDARY_STROKE = '#a67c17';
 const DEFAULT_BOUNDARY_FILL_OPACITY = 0.12;
 const DEFAULT_BOUNDARY_STROKE_WIDTH = 2;
-/** Point/device-dot stroke against `DEFAULT_STATUS_COLOR`/`DEFAULT_BOUNDARY_FILL` fills. Placeholder, unconfirmed -- see the wave-1 report's "Stopped, and why" #2. */
+/** Un-hovered pin/device-dot outline. Brand-pass: kept as literal white — the
+ *  task's own guidance names "white or sand-950" as the two legible pin-ring
+ *  options, and this is the "white" half, paired with `HOVER_STROKE_COLOR`
+ *  (`sand-950`, in `colors.ts`) as the "sand-950" half. Not a leftover
+ *  Tailwind default: it is the deliberate, brand-pass-endorsed choice. */
 const DEFAULT_POINT_STROKE_COLOR = '#ffffff';
-/** Device-position dot/accuracy-ring colour. Reuses `DEFAULT_BOUNDARY_FILL` deliberately -- one placeholder blue, not two. */
-const DEFAULT_DEVICE_COLOR = DEFAULT_BOUNDARY_FILL;
+/** Device-position dot/accuracy-ring colour — its own brand value now, not
+ *  an alias of `DEFAULT_BOUNDARY_FILL`. See the block comment above. */
+const DEFAULT_DEVICE_COLOR = '#2f5332';
 const POINT_RADIUS_PX = 7;
 const POINT_HOVER_STROKE_WIDTH = 3;
 const POINT_STROKE_WIDTH = 1;
