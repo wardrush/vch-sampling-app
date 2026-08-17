@@ -1,0 +1,62 @@
+{
+  "crew_org_id": "crew_vch_north",
+  "since": "2026-09-14T00:00:00Z",
+  "defects": [
+    {
+      "defect_id": "def_01J4PXYZ654321",
+      "sample_uid": "sample_01J4PXZ0123456",
+      "defect_code": "BARCODE_DUPLICATE",
+      "detected_by": "server_rule",
+      "detected_ts": "2026-09-15T18:45:00Z",
+      "severity": "blocking",
+      "visible_to_field": true,
+      "sample_coordinate": [47.5433, -99.1235],
+      "plan_point_label": "PT-001",
+      "display_label": "Barcode already exists",
+      "description": "This barcode was used on a previous point in the same plan",
+      "suggested_action": "Verify barcode is correct; if it matches another bag, contact office"
+    },
+    {
+      "defect_id": "def_01J4PXYZ654322",
+      "sample_uid": "sample_01J4PXZ0456789",
+      "defect_code": "MISSING_REQUIRED_MEDIA",
+      "detected_by": "server_rule",
+      "detected_ts": "2026-09-15T18:46:00Z",
+      "severity": "review",
+      "visible_to_field": true,
+      "sample_coordinate": [47.5440, -99.1242],
+      "plan_point_label": "PT-002",
+      "display_label": "Missing required photo",
+      "description": "Site photo was not provided for this sample",
+      "suggested_action": "Return to location and capture missing site photo"
+    },
+    {
+      "defect_id": "def_01J4PXYZ654323",
+      "sample_uid": "sample_01J4PXZ0789012",
+      "defect_code": "GPS_ACCURACY_EXCEEDED",
+      "detected_by": "device",
+      "detected_ts": "2026-09-15T16:20:00Z",
+      "severity": "review",
+      "visible_to_field": true,
+      "sample_coordinate": [47.5448, -99.1250],
+      "plan_point_label": "PT-003",
+      "display_label": "GPS accuracy marginal",
+      "description": "GPS accuracy was 24m, spec requires 10m",
+      "suggested_action": "Position may be approximate; verify location on map"
+    },
+    {
+      "defect_id": "def_01J4PXYZ654324",
+      "sample_uid": "sample_01J4PXZ1012345",
+      "defect_code": "CLOCK_DRIFT_SUSPECTED",
+      "detected_by": "server_rule",
+      "detected_ts": "2026-09-15T18:50:00Z",
+      "severity": "review",
+      "visible_to_field": false,
+      "sample_coordinate": [47.5456, -99.1258],
+      "plan_point_label": "PT-004",
+      "display_label": "Device clock may have changed",
+      "description": "Detected clock drift between captures on this device",
+      "suggested_action": "Crew: no action. Analyst: verify timestamp sequence in batch"
+    }
+  ]
+}

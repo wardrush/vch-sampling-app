@@ -1,0 +1,81 @@
+{
+  "sync_batch_id": "01ARZ3NDEKTSV4RRFFQ69G5FA2",
+  "device_id": "dev_samsung_001",
+  "app_version": "1.0.0",
+  "schema_version": "1.0",
+  "client_sent_ts": "2026-09-15T18:30:00Z",
+  "records": [
+    {
+      "entity_type": "field_visit",
+      "entity_id": "visit_01J4PXYZ123456",
+      "payload": {
+        "visit_id": "visit_01J4PXYZ123456",
+        "device_id": "dev_samsung_001",
+        "crew_org_id": "crew_vch_north",
+        "boundary_id": "b-001",
+        "visit_date": "2026-09-15",
+        "visit_start_ts": "2026-09-15T16:00:00Z",
+        "visit_end_ts": "2026-09-15T18:30:00Z",
+        "device_uptime_ms": 9000000,
+        "clock_drift_seconds": 2,
+        "battery_percent_start": 95,
+        "battery_percent_end": 68
+      }
+    },
+    {
+      "entity_type": "sample_point",
+      "entity_id": "sample_01J4PXZ0123456",
+      "payload": {
+        "sample_uid": "sample_01J4PXZ0123456",
+        "visit_id": "visit_01J4PXYZ123456",
+        "plan_point_id": "pp-001",
+        "actual_lat": 47.5433,
+        "actual_lon": -99.1235,
+        "position_source": "gps_fix",
+        "gps_accuracy_m": 8.2,
+        "gps_fix_count": 5,
+        "capture_ts_device": "2026-09-15T16:15:00Z",
+        "captured_by": "sampler_001",
+        "conditions": [
+          {"condition_code": "MOISTURE_MOIST", "condition_value": null},
+          {"condition_code": "RESIDUE_COVER_PCT", "condition_value": "25-50%"}
+        ]
+      }
+    },
+    {
+      "entity_type": "sample_bag",
+      "entity_id": "bag_01J4PY0A123456",
+      "payload": {
+        "bag_id": "bag_01J4PY0A123456",
+        "sample_uid": "sample_01J4PXZ0123456",
+        "lab_id": "lab-001",
+        "barcode_raw": "VCH00000001",
+        "barcode_capture_method": "scan",
+        "barcode_scanned_ts": "2026-09-15T16:16:00Z",
+        "depth_top_cm": 0,
+        "depth_bottom_cm": 30,
+        "depth_achieved_cm": 30.5,
+        "void_flag": false
+      }
+    },
+    {
+      "entity_type": "media_meta",
+      "entity_id": "media_01J4PY1B123456",
+      "payload": {
+        "media_id": "media_01J4PY1B123456",
+        "sample_uid": "sample_01J4PXZ0123456",
+        "media_role": "label_photo",
+        "content_hash": "sha256:abcdef0123456789",
+        "capture_ts_device": "2026-09-15T16:17:00Z",
+        "exif_lat": 47.5433,
+        "exif_lon": -99.1235,
+        "exif_ts": "2026-09-15T16:17:00Z",
+        "bytes": 425000,
+        "width_px": 2400,
+        "height_px": 3200,
+        "mime_type": "image/jpeg",
+        "capture_source": "in_app_camera"
+      }
+    }
+  ]
+}

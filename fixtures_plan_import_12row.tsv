@@ -1,0 +1,13 @@
+plan_point_label	lat	lon	boundary_id	strata_label	elevation_class	sequence_no	farmer_operation	contact_name	contact_phone	soil_note
+PT-001	47.5432	-99.1234	b-001	D1_Clay Loam	A	1	Johnson Farm LLC	John Johnson	605-555-0101
+PT-002	47.5440	-99.1242	b-001	D2_Silt Loam	A	2	Johnson Farm LLC	John Johnson	605-555-0101	Rich loam, good tilth
+PT-003	-99.1250	47.5448	b-001	D1_Clay Loam	B	3	Mitchell Farms	Sarah Mitchell	605-555-0102	swapped lat/lon on purpose
+PT-004	47.5456	-99.1258	b-001	D3_Sandy Loam	A	4	Bring Farms	Bob Bring	605-555-0103
+PT-005	47.5464	-99.1266	b-001	D2_Silt Loam	B	5	Edwards Estate	Ed Edwards	605-555-0104
+PT-006	47.5472	-99.1274	b-001	D1_Clay Loam	A	6	Edwards Estate	Ed Edwards	605-555-0104	duplicate of row 5 point ID
+PT-007	47.5480	-99.1282	b-001	D4_Loamy Sand	B	7	Ben Bring Farms LLC	Contact pending	605-555-0199	fuzzy match to Bring Farms
+PT-008	47.5488	-99.1290	b-001	D3_Sandy Loam	A	8	Mitchell Farms	Sarah Mitchell	605-555-0102
+PT-009	47.5496	-99.1298	b-001	D2_Silt Loam	B	9	Johnson Farm LLC	John Johnson	605-555-0101
+PT-010	48.0500	-99.8000	b-001	D1_Clay Loam	A	10	Bring Farms	Bob Bring	605-555-0103	400m outside all boundaries
+PT-011	47.5512	-99.1314	b-001	D3_Sandy Loam	B	11	Mitchell Farms	Sarah Mitchell	605-555-0102
+PT-012	47.5520	-99.1322	b-001	D2_Silt Loam	A	12	Johnson Farm LLC	John Johnson	605-555-0101

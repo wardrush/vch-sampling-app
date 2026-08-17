@@ -1,0 +1,228 @@
+{
+  "bundle_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "etag": "sha256:abc123def456",
+  "schema_version": "1.0",
+  "server_time": "2026-09-01T14:30:00Z",
+  "expires_ts": "2026-10-31T00:00:00Z",
+  "specs": [
+    {
+      "spec_id": "spec-f26-bcarbon-v3",
+      "project_id": "proj-vch-soil",
+      "protocol_version": "BCARBON_V3.0",
+      "period_code": "F26",
+      "depth_top_cm": 0,
+      "depth_bottom_cm": 30,
+      "depth_increments_json": [[0, 15], [15, 30]],
+      "overdrill_cm": 5,
+      "cores_per_composite_min": 5,
+      "cores_per_composite_max": 10,
+      "composite_radius_m": 2,
+      "bd_core_required": true,
+      "required_media_roles": ["label_photo", "core_photo", "site_photo"],
+      "gps_accuracy_required_m": 10,
+      "min_gps_fix_count": 3,
+      "max_plan_offset_m_warn": 15,
+      "max_plan_offset_m_block": 30,
+      "default_lab_id": "lab-001"
+    }
+  ],
+  "ref_condition_code": [
+    {
+      "condition_code": "MOISTURE_WET",
+      "code_set_version": "1.0",
+      "condition_group": "moisture",
+      "display_label": "Wet / flooded",
+      "value_type": "none",
+      "sort_order": 10,
+      "is_active": true
+    },
+    {
+      "condition_code": "MOISTURE_MOIST",
+      "code_set_version": "1.0",
+      "condition_group": "moisture",
+      "display_label": "Moist",
+      "value_type": "none",
+      "sort_order": 20,
+      "is_active": true
+    },
+    {
+      "condition_code": "MOISTURE_DRY",
+      "code_set_version": "1.0",
+      "condition_group": "moisture",
+      "display_label": "Dry / drought",
+      "value_type": "none",
+      "sort_order": 30,
+      "is_active": true
+    },
+    {
+      "condition_code": "RESIDUE_COVER_PCT",
+      "code_set_version": "1.0",
+      "condition_group": "residue",
+      "display_label": "Residue cover percent",
+      "value_type": "band",
+      "value_options": ["0-10%", "10-25%", "25-50%", "50-75%", "75-90%", "90-100%"],
+      "sort_order": 10,
+      "is_active": true
+    }
+  ],
+  "ref_deviation_reason": [
+    {
+      "deviation_reason_code": "INACCESSIBLE",
+      "display_label": "Point inaccessible or blocked",
+      "requires_note": true,
+      "is_skip_reason": true,
+      "is_active": true
+    },
+    {
+      "deviation_reason_code": "OWNER_REFUSAL",
+      "display_label": "Owner refused access",
+      "requires_note": false,
+      "is_skip_reason": true,
+      "is_active": true
+    },
+    {
+      "deviation_reason_code": "BOUNDARY_ERROR",
+      "display_label": "Boundary polygon error — point actually in field",
+      "requires_note": false,
+      "requires_photo": true,
+      "is_skip_reason": false,
+      "is_active": true
+    },
+    {
+      "deviation_reason_code": "REFUSAL_AT_DEPTH",
+      "display_label": "Hit refusal layer before reaching target depth",
+      "requires_note": true,
+      "is_skip_reason": false,
+      "is_active": true
+    }
+  ],
+  "ref_defect_code": [
+    {
+      "defect_code": "BARCODE_UNREAD",
+      "display_label": "Barcode could not be read",
+      "default_severity": "blocking",
+      "raised_by": "device",
+      "is_active": true
+    },
+    {
+      "defect_code": "MISSING_REQUIRED_MEDIA",
+      "display_label": "Missing one or more required photo roles",
+      "default_severity": "review",
+      "raised_by": "server_rule",
+      "is_active": true
+    },
+    {
+      "defect_code": "NO_GPS_FIX",
+      "display_label": "No GPS fix acquired",
+      "default_severity": "review",
+      "raised_by": "device",
+      "is_active": true
+    },
+    {
+      "defect_code": "GPS_ACCURACY_EXCEEDED",
+      "display_label": "GPS accuracy worse than spec",
+      "default_severity": "review",
+      "raised_by": "device",
+      "is_active": true
+    }
+  ],
+  "ref_lab": [
+    {
+      "lab_id": "lab-001",
+      "lab_name": "VCH Central Lab",
+      "barcode_symbology": "CODE_128",
+      "barcode_pattern": "^[A-Z]{2}[0-9]{8}$",
+      "barcode_reused": false,
+      "is_active": true
+    }
+  ],
+  "boundaries": [
+    {
+      "boundary_id": "b-001",
+      "boundary_name": "Johnson Farm - East 40",
+      "geom_acres": 40.5,
+      "geojson": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-99.130, 47.540],
+            [-99.115, 47.540],
+            [-99.115, 47.555],
+            [-99.130, 47.555],
+            [-99.130, 47.540]
+          ]
+        ]
+      }
+    }
+  ],
+  "plan_points": [
+    {
+      "plan_point_id": "pp-001",
+      "plan_point_label": "PT-001",
+      "planned_lat": 47.5432,
+      "planned_lon": -99.1234,
+      "strata_label": "D1_Clay Loam",
+      "elevation_class": "A",
+      "sequence_no": 1
+    },
+    {
+      "plan_point_id": "pp-002",
+      "plan_point_label": "PT-002",
+      "planned_lat": 47.5440,
+      "planned_lon": -99.1242,
+      "strata_label": "D2_Silt Loam",
+      "elevation_class": "A",
+      "sequence_no": 2
+    },
+    {
+      "plan_point_id": "pp-003",
+      "plan_point_label": "PT-003",
+      "planned_lat": 47.5448,
+      "planned_lon": -99.1250,
+      "strata_label": "D1_Clay Loam",
+      "elevation_class": "B",
+      "sequence_no": 3
+    },
+    {
+      "plan_point_id": "pp-004",
+      "plan_point_label": "PT-004",
+      "planned_lat": 47.5456,
+      "planned_lon": -99.1258,
+      "strata_label": "D3_Sandy Loam",
+      "elevation_class": "A",
+      "sequence_no": 4
+    },
+    {
+      "plan_point_id": "pp-005",
+      "plan_point_label": "PT-005",
+      "planned_lat": 47.5464,
+      "planned_lon": -99.1266,
+      "strata_label": "D2_Silt Loam",
+      "elevation_class": "B",
+      "sequence_no": 5
+    },
+    {
+      "plan_point_id": "pp-006",
+      "plan_point_label": "PT-006",
+      "planned_lat": 47.5472,
+      "planned_lon": -99.1274,
+      "strata_label": "D1_Clay Loam",
+      "elevation_class": "A",
+      "sequence_no": 6
+    }
+  ],
+  "access_contacts": [
+    {
+      "boundary_id": "b-001",
+      "display_name": "John Johnson",
+      "role_label": "operator",
+      "phone": "605-555-0101"
+    }
+  ],
+  "tile_pack": {
+    "version": "f26-nd-w-01",
+    "url": "https://tiles.example.com/f26-nd-w-01.pmtiles",
+    "bytes": 214000000,
+    "sha256": "tiles_sha256_hash_here"
+  }
+}
