@@ -3,8 +3,9 @@
  * SQLite (Node's built-in `node:sqlite`, `tests/support/node-sqlite.ts`), not
  * a hand-rolled fake. This is the honest boundary described in
  * `wa-sqlite-opfs.ts`'s header: the migration logic is fully covered here;
- * the OPFS/wa-sqlite transport it runs over in a real browser is not, and
- * cannot be from this sandbox.
+ * the wa-sqlite transport it runs over in a real browser is not, and cannot
+ * be from this sandbox — `tests/e2e/**` (Playwright, a real Chromium) is
+ * where that gets proven for real.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -29,6 +30,13 @@ describe('openDeviceDb', () => {
     expect(rows[0]?.n).toBe(0);
   });
 
+  it("tags an untagged connection's backend as 'unknown' rather than guessing", async () => {
+    // `NodeSqliteDb` is a plain `SqlDatabase` fake with no `.backend` — this
+    // proves `openDeviceDb()` doesn't misreport a test double as a real VFS.
+    const { backend } = await openDeviceDb({ createConnection: async () => new NodeSqliteDb(':memory:') });
+    expect(backend).toBe('unknown');
+  });
+
   it('is idempotent — a second bootstrap of the same connection applies nothing new', async () => {
     const conn = new NodeSqliteDb(':memory:');
     const first = await openDeviceDb({ createConnection: async () => conn });
@@ -43,13 +51,15 @@ describe('openDeviceDb', () => {
 describe('getDeviceDb', () => {
   it('memoises — two calls without a reset return the same handle', async () => {
     _resetDeviceDbForTests();
-    // getDeviceDb() defaults to the real wa-sqlite/OPFS driver, which throws
-    // outside a browser (by design — see wa-sqlite-opfs.ts). This test only
-    // proves the singleton *caches the promise*, not what it resolves to.
+    // getDeviceDb() defaults to the real wa-sqlite driver, which throws
+    // outside a browser (by design — see wa-sqlite-opfs.ts: neither IndexedDB
+    // nor a network-hosted wasm module resolve under Node/jsdom). This test
+    // only proves the singleton *caches the promise*, not what it resolves to
+    // — `tests/e2e/**` proves the real-browser open.
     const first = getDeviceDb();
     const second = getDeviceDb();
     expect(first).toBe(second);
-    await expect(first).rejects.toThrow(/OPFS/);
+    await expect(first).rejects.toThrow(/local database engine/);
     _resetDeviceDbForTests();
   });
 });

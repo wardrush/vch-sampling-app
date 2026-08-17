@@ -17,6 +17,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { SEMANTIC_COLORS, SPACING, TOUCH_TARGETS, FONT_WEIGHTS } from '@app/components/tokens/index.js';
 import { NAV_DESTINATIONS } from './routes.js';
 import { UpdateBanner } from './UpdateBanner.js';
+import { MemoryFallbackBanner } from './MemoryFallbackBanner.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
 export function AppShell() {
@@ -31,6 +32,7 @@ export function AppShell() {
     >
       <BrandBar />
       <UpdateBanner />
+      <MemoryFallbackBanner />
       <main style={{ flex: 1, overflowY: 'auto', paddingBottom: TOUCH_TARGETS.xlarge }}>
         <ErrorBoundary>
           <Outlet />

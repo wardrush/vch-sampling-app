@@ -11,6 +11,11 @@
  *
  * B10/B12 (wave 2): Skip and Storage screens now import from `screens/skip/**`
  * and `screens/storage/**`. Both screens are real (spec-transcriber, wave 2).
+ *
+ * B14 (wave 3): `screens/tutorial/**` — the first-run guided walkthrough
+ * (v02 D18). Lives under `FocusShell` (no bottom nav — full attention,
+ * nothing to jump away to mid-walkthrough) even though it is reached from
+ * Today, the same reasoning `routes.ts` gives for Field/Capture/Skip.
  */
 
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
@@ -24,6 +29,7 @@ import { CaptureScreen } from './screens/capture/CaptureScreen.js';
 import { OutboxScreen } from './screens/outbox/OutboxScreen.js';
 import { SkipScreen } from './screens/skip/SkipScreen.js';
 import { StorageScreen } from './screens/storage/StorageScreen.js';
+import { TutorialScreen } from './screens/tutorial/TutorialScreen.js';
 
 export function App() {
   return (
@@ -41,6 +47,7 @@ export function App() {
             <Route path={ROUTE_PATHS.capture} element={<CaptureScreen />} />
             <Route path={ROUTE_PATHS.captureNew} element={<CaptureScreen />} />
             <Route path={ROUTE_PATHS.skip} element={<SkipScreen />} />
+            <Route path={ROUTE_PATHS.tutorial} element={<TutorialScreen />} />
           </Route>
 
           <Route path="*" element={<Navigate to={ROUTE_PATHS.today} replace />} />

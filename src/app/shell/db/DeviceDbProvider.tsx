@@ -19,7 +19,14 @@ import { getDeviceDb, type DeviceDbHandle } from './device-db.js';
 
 type DeviceDbState =
   | { status: 'loading' }
-  | { status: 'ready'; db: SqlDatabase; migration: DeviceDbHandle['migration'] }
+  | {
+      status: 'ready';
+      db: SqlDatabase;
+      migration: DeviceDbHandle['migration'];
+      /** See `device-db.ts`'s header — surfaced so `MemoryFallbackBanner`
+       *  can tell a sampler, honestly, when nothing is being saved. */
+      backend: DeviceDbHandle['backend'];
+    }
   | { status: 'error'; error: Error };
 
 const DeviceDbContext = createContext<DeviceDbState>({ status: 'loading' });
@@ -30,8 +37,8 @@ export function DeviceDbProvider({ children }: { children: React.ReactNode }): R
   useEffect(() => {
     let cancelled = false;
     getDeviceDb()
-      .then(({ db, migration }) => {
-        if (!cancelled) setState({ status: 'ready', db, migration });
+      .then(({ db, migration, backend }) => {
+        if (!cancelled) setState({ status: 'ready', db, migration, backend });
       })
       .catch((err: unknown) => {
         if (!cancelled) {

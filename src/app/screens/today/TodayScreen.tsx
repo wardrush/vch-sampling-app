@@ -15,15 +15,24 @@
  * the boundary list. Every screen downstream (Field, Capture) reads what
  * this write already put in the device database — nothing else in this
  * lane re-fetches it.
+ *
+ * **Also owns the first-run tutorial redirect** (B14, v02 D18): on mount, if
+ * this device has no `tutorial_completed_ts` (`@app/shell/tutorial.js`), it
+ * replaces the history entry with `/tutorial` before the boundary list ever
+ * paints. One-time by construction — the tutorial sets the flag on finish
+ * *or* skip, so returning to Today afterward never redirects again. A
+ * permanent "Show me again" link (v02 §4.5: "help is pulled, never pushed")
+ * stays in the status strip either way.
  */
 
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Badge, SEMANTIC_COLORS, SPACING, FONT_SIZES, FONT_WEIGHTS, TOUCH_TARGETS } from '@app/components/index.js';
 import { useDeviceDb } from '@app/shell/db/DeviceDbProvider.js';
-import { fieldPath } from '@app/shell/routes.js';
+import { fieldPath, ROUTE_PATHS } from '@app/shell/routes.js';
 import { fetchAssignmentBundle } from '@app/shell/bundle/client.js';
 import { applyBundleToDevice } from '@app/shell/bundle/apply.js';
+import { getTutorialCompletedTs } from '@app/shell/tutorial.js';
 import {
   getLatestBundleManifest,
   listBoundarySummaries,
@@ -36,6 +45,17 @@ const FEATURE_YESTERDAYS_FLAGS = false;
 
 export function TodayScreen(): React.JSX.Element {
   const dbState = useDeviceDb();
+  const navigate = useNavigate();
+
+  // First-run tutorial gate (v02 D18). Runs once per mount, independent of
+  // the device-DB/bundle effect below — the tutorial itself touches no
+  // device data, so there is nothing to wait on here.
+  useEffect(() => {
+    if (!getTutorialCompletedTs()) {
+      navigate(ROUTE_PATHS.tutorial, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [boundaries, setBoundaries] = useState<BoundarySummary[] | null>(null);
   const [expiresTs, setExpiresTs] = useState<string | null>(null);
@@ -145,6 +165,20 @@ function StatusStrip({
       {dbReady && bundleSource === 'local_fixture' && (
         <Badge label="Demo data (no assignments server reachable)" status="info" />
       )}
+      <Link
+        to={ROUTE_PATHS.tutorial}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          minHeight: TOUCH_TARGETS.minimal,
+          fontSize: FONT_SIZES.sm,
+          fontWeight: FONT_WEIGHTS.semibold,
+          color: SEMANTIC_COLORS.buttonPrimaryBg,
+          textDecoration: 'none',
+        }}
+      >
+        Show me again ↺
+      </Link>
     </div>
   );
 }

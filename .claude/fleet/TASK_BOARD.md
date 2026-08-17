@@ -59,6 +59,62 @@ it). **B5 is therefore unblocked.**
 
 ---
 
+## Wave 3 — DONE 2026-08-17. **There is a shareable demo.** Gate: `npm run test:e2e` green
+
+**The gate changed, and that is the headline.** `npm test` is no longer sufficient evidence for
+anything touching browser storage. `npm run test:e2e` builds the production bundle, serves it
+with `MOCK_SNOWFLAKE=1`, and drives the real flow in real Chromium at desktop **and Pixel 7**
+viewports. 333 unit tests / 1 skipped still pass; they were never the problem.
+
+### Why: three waves shipped a database driver that had never once executed
+
+jsdom has no `navigator.storage`, no usable IndexedDB and no browser-like wasm host, so
+`src/app/shell/db/**` could not run under `npm test` at all. It reached production unexecuted
+and failed on the first real device with `unable to open database file`. **Two** separate bugs
+were behind that message, and neither was findable without a browser:
+
+1. **`OriginPrivateFileSystemVFS` calls `createSyncAccessHandle`, which is Worker-only**, and it
+   was being called on the main thread → `SQLITE_CANTOPEN`. The driver's own header comment
+   asserted the opposite; `grep -c createSyncAccessHandle` on the installed package says `1`.
+   Now **`IDBBatchAtomicVFS`** — still durable (IndexedDB), main-thread, works on iOS Safari
+   where OPFS is newer and thinner — with `MemoryAsyncVFS` as a last resort behind a
+   non-dismissible banner, because a sampler must never believe a day's work is stored when it
+   is not.
+2. **The Asyncify build allows one call in flight per connection.** `Promise.all([...])` in
+   `TodayScreen` corrupted the VFS and reproduced *the identical error message* on reload once
+   the database held data — 100% reproducible. Fixed with a FIFO queue inside the one file that
+   knows wa-sqlite exists, rather than auditing every call site.
+
+Had only the first fix landed, the app would have worked once and failed on reload.
+
+### The demo
+
+`/tutorial` — four steps (Today, Field, Capture, Outbox), each labelled **"demo data only"**,
+skippable, with a permanent "Show me again ↺". The Capture step drives
+`capture-integrity`'s real `TutorialCaptureSession`, so it shows the actual GPS averaging and
+photo pipeline. Walkthrough in `.claude/fleet/reports/pwa-screens-wave3.md`.
+
+### The map was blank, and the suite passed anyway
+
+`FocusShell`'s root used **`minHeight: '100%'` instead of `height: '100%'`**. `min-height` is a
+lower bound on a content-sized box; it gives descendants nothing definite to resolve `height:
+100%` against, so `<BoundaryMap>`'s container computed to 0 and clipped a correctly-initialised
+412×300 canvas. Upstream of `<BoundaryMap>`, so `map-surface`'s file was never touched.
+
+The E2E suite passed while the map was invisible — it was not yet testing what the demo most
+depends on. It now asserts container height, viewport-fill ratio, zero gap to the point strip,
+and **samples real screenshot pixels** (via a hand-rolled PNG decoder over `node:zlib`, since
+`<BoundaryMap>` does not set `preserveDrawingBuffer`) to prove the polygon is actually painted.
+**Verified by reverting the fix and confirming the suite goes red**, then restoring it — twice.
+
+### A false-positive trap worth remembering
+
+The agent's first "green" was a **stale `vite preview` on port 4173**, silently reused by
+`webServer.reuseExistingServer`. It was caught only because a deliberate revert was *expected*
+to go red and came back green. Kill stale preview servers before trusting an E2E result.
+
+---
+
 ## Wave 2 — DONE 2026-08-17. Gate: typecheck clean, 31 files / 300 passed / 1 skipped
 
 **There is a demonstrable flow now.** Screens went from 84 lines of placeholder to ~2,200
