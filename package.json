@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest run --config vite.config.ts",
+    "test:e2e": "PLAYWRIGHT_CHROMIUM_PATH=${PLAYWRIGHT_CHROMIUM_PATH:-/opt/pw-browsers/chromium-1194/chrome-linux/chrome} playwright test",
     "db:migrate": "tsx tools/deploy-ddl.ts --target=postgres",
     "db:migrate:dry": "tsx tools/deploy-ddl.ts --target=postgres --dry-run",
     "db:migrate:deploy": "node tools/migrate-on-deploy.mjs",
@@ -36,6 +37,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/geojson": "^7946.0.14",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.11",
