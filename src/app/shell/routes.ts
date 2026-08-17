@@ -30,6 +30,11 @@ export const ROUTE_PATHS = {
   skip: '/skip/:boundaryId/:pointId',
   outbox: '/outbox',
   storage: '/storage',
+  /** B14 / v02 D18 — first-run guided walkthrough on model data. `TodayScreen`
+   *  redirects here once, the first time a device has no `tutorial_completed_ts`
+   *  (`@app/shell/tutorial.js`); reachable any time after via Today's
+   *  "show me again" link, per v02 §4.5. */
+  tutorial: '/tutorial',
 } as const;
 
 export type RouteKey = keyof typeof ROUTE_PATHS;
