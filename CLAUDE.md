@@ -1,6 +1,38 @@
-# claude.md — Sampling App: Data Schema & Build Plan
+# CLAUDE.md — Sampling App: Data Schema & Build Plan
 
 ## Status: v02 COMPLETE (2026-08-16) — ready for consultant review and the fall-2026 pre-work calls
+
+---
+
+## ⚠️ Before you parallelise anything on this repo
+
+**Read `.claude/fleet/FLEET.md` first.** This repository is built by a fleet of
+subagents defined in `.claude/agents/`, spanning Opus, Sonnet and Haiku. Ten agents,
+write-disjoint path ownership, waves with an integration gate between them.
+
+| File | What it is |
+|---|---|
+| **`.claude/fleet/FLEET.md`** | **The coordination protocol.** Roster, which model and why, how to spawn a wave, the six rules, what the orchestrator does |
+| **`.claude/fleet/TASK_BOARD.md`** | Live state of remaining work, grouped into waves. Update it in the same commit as the work |
+| `.claude/agents/*.md` | The ten agent definitions. Each names the paths it owns and where it must stop rather than guess |
+| `.claude/fleet/reports/` | One report per agent per wave. `fleet-integrator` reconciles them against the diff |
+
+Three rules matter more than the rest, and each one is here because it already went
+wrong once (see `FLEET.md` §0):
+
+1. **No subagent runs a git command that writes.** The orchestrator owns the index and
+   commits per wave. Concurrent `git add` corrupts `.git/index` for the whole wave.
+2. **An agent writes only under the paths its own file lists.** Reading anything is
+   always fine. `CODEOWNERS` is the human-facing copy of the same boundary.
+3. **A subagent's green typecheck is not evidence** — it ran against a tree other
+   agents were still writing to. `fleet-integrator` runs the authoritative gate after
+   the wave completes.
+
+`CONCURRENT_BUILD_PLAN_v01.md` remains the source for *what* the work is and which
+model tier it belongs in. `FLEET.md` is how it gets executed by subagents rather than
+by three separate human-launched instances.
+
+---
 
 ## Session goal
 
