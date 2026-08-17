@@ -23,43 +23,43 @@ The concurrent build plan structures work across three lanes with tagged escalat
 
 | # | Task | Status | Notes |
 |---|---|---|---|
+| F0.5 | Transcribe code sets | ✅ Complete | 6 TypeScript files: defect, condition, deviation, validation, priority codes + index |
+| F0.7 | Create fixtures | ✅ Complete | 4 JSON/TSV files: bundle, plan_import_12row, sync_batch_example, defect_feed |
 | F0.10 | CLAUDE.md ownership table + CODEOWNERS | ✅ Complete | Created CODEOWNERS with three-lane boundaries |
 | F0.11 | Flatten doc-path discrepancy | ✅ Complete | Fixed `docs/` and `ddl/` references in claude.md to match actual root-level file locations |
 
-**Commit:** `657d12f` — F0.10-F0.11 foundation work
+**Commits:**
+- `657d12f` — F0.10-F0.11: CODEOWNERS and doc-path fix
+- `0888168` — F0.5: Code set transcription (6 files)
+- `e772d29` — F0.7: Fixture files (4 files)
+
+**Total: 4 Haiku foundation tasks complete (all available without full project scaffold)**
 
 ---
 
 ## Blocked — Requires Foundation Scaffolding (F0.1-F0.4, F0.6, F0.8-F0.9)
 
-### Immediate Blockers
-No project scaffold exists yet:
-- ❌ `package.json` (F0.1 — Sonnet)
-- ❌ `vite.config.ts` (F0.1 — Sonnet)
-- ❌ `tsconfig.json` (F0.1 — Sonnet)
-- ❌ `netlify.toml` (F0.2 — Sonnet)
-- ❌ Dependency lockfile (F0.3 — Sonnet)
-- ❌ `src/shared/contract/*.ts` TS types (F0.4 — Opus)
-- ❌ `src/shared/db/schema.ts` (F0.6 — Opus)
-- ❌ Mock function handlers (F0.8 — Sonnet)
-- ❌ Module stubs for all three lanes (F0.9 — Sonnet)
+### Immediate Blockers (Remaining F0 work — Sonnet/Opus only)
+Project scaffold infrastructure still needed:
+- ❌ **F0.1** `package.json`, `vite.config.ts`, `tsconfig.json` [SONNET]
+- ❌ **F0.2** `netlify.toml` pre-declaration [SONNET]
+- ❌ **F0.3** Dependency lockfile (`npm install` all deps) [SONNET]
+- ❌ **F0.4** `src/shared/contract/*.ts` TS types for wire contracts [OPUS]
+- ❌ **F0.6** `src/shared/db/schema.ts` SQLite bootstrap [OPUS]
+- ❌ **F0.8** Mock function handlers for netlify dev [SONNET]
+- ❌ **F0.9** Module stubs for all three lanes [SONNET]
 
-### Dependent Haiku Work That Awaits Foundation
+**Gate condition for lanes to start:** `npm run typecheck && npm test` passes, `netlify dev` serves all fixtures
 
-**F0.5 — `src/shared/codes/*.ts`** (Haiku)  
-*Depends on:* F0 skeleton exists, TypeScript configured  
-*Task:* Transcribe defect codes, condition codes, deviation reasons, validation codes, entity priorities from `SYNC_CONTRACT_v01.md` §5 and `SCHEMA_AND_SYNC_ADDENDUM_v02.md` §4.2
+### Lane Work Awaiting Foundation Scaffold (F0.1-F0.9)
 
-**F0.7 — Fixtures** (Haiku)  
-*Depends on:* F0 skeleton, `fixtures/` directory structure  
-*Task:* Create:
-  - `fixtures/bundle.f26-demo.json` — one boundary, six plan points, one unreadable barcode
-  - `fixtures/plan_import_12row.tsv` — the exact fault set from ingest spec §8
-  - `fixtures/sync_batch/*.json` — batch examples
-  - `fixtures/defect_feed.json` — defect examples
-
-**All Lane A, B, C Haiku tasks** (14 tasks)  
+**All Lane A, B, C Haiku tasks** (17 tasks)  
 *Depends on:* Foundation F0.1-F0.9 complete, `npm run typecheck && npm test` passes
+
+Once F0.1-F0.9 are in place:
+- Code sets in `src/shared/codes/` are ready to import
+- Fixtures are ready to serve via `netlify dev` mock endpoints
+- Lane work can proceed in dependency order
 
 ---
 
@@ -80,11 +80,13 @@ No project scaffold exists yet:
 
 ---
 
-## Haiku Task List (Ready to Execute Once Foundation Exists)
+## Haiku Task List
 
-### Foundation Tasks
-- [ ] **F0.5** — `src/shared/codes/*.ts` — transcribe enum values from contract and addendum
-- [ ] **F0.7** — `fixtures/` directory — create bundle, import, sync_batch, defect_feed examples
+### Foundation Tasks (All Complete)
+- [x] **F0.5** — `src/shared/codes/*.ts` — transcribe enum values from contract and addendum
+- [x] **F0.7** — `fixtures/` directory — create bundle, import, sync_batch, defect_feed examples
+- [x] **F0.10** — CODEOWNERS file with lane boundaries
+- [x] **F0.11** — Fix claude.md doc-path references
 
 ### Lane A
 - [ ] **A8** — Individual defect rules (duplicate barcode, missing media, offset exceeded, clock drift, EXIF-GPS mismatch, gallery source, depth shortfall)
