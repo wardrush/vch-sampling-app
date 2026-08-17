@@ -29,9 +29,20 @@ import type {
   AccessContact,
   TilePackRef,
 } from '../../shared/contract/bundle.js';
-import type { SnowflakeClient } from '../../shared/snowflake/client.js';
-import { asObjects } from '../../shared/snowflake/client.js';
+import type { SqlCapabilities, SqlClient } from '../../shared/db/port.js';
+import { asObjects, SNOWFLAKE_CAPABILITIES } from '../../shared/db/port.js';
 import { uuidv7 } from 'uuidv7';
+
+/**
+ * Defensive fallback to full (Snowflake) capability when a client does not
+ * actually carry `.capabilities` at runtime — same helper, same reason, as
+ * `src/ingest/commit/index.ts` / `src/ingest/retire/index.ts`:
+ * `tests/support/fake-snowflake.ts` (shared, unowned) predates the SQL port
+ * and its `asClient()` cast bypasses the structural check.
+ */
+function capsOf(client: SqlClient): SqlCapabilities {
+  return client.capabilities ?? SNOWFLAKE_CAPABILITIES;
+}
 
 export interface BundleAssemblyInput {
   crewOrgId: string;
@@ -83,7 +94,9 @@ export function assembleBundle(input: BundleAssemblyInput): AssignmentBundle {
 }
 
 export interface LiveBundleDeps {
-  snowflake: SnowflakeClient;
+  /** Field name unchanged across the port — `SnowflakeClient` and the Postgres
+   *  adapter both satisfy `SqlClient` structurally. */
+  snowflake: SqlClient;
 }
 
 /**
@@ -99,6 +112,12 @@ export async function assembleLiveBundle(
 
   const boundaryIds = await boundaryIdsForCrew(sf, input.period);
 
+  // `CURRENT_DATE()` (Snowflake) vs `CURRENT_DATE` (Postgres rejects the
+  // parens) -- same dialect gap as `CURRENT_TIMESTAMP()` elsewhere in the
+  // codebase (`src/ingest/retire/index.ts`), gated on the same capability
+  // flag rather than a new one.
+  const currentDate = capsOf(sf).mergeInto ? 'CURRENT_DATE()' : 'CURRENT_DATE';
+
   const [specs, refConditionCode, refDeviationReason, refDefectCode, refLab, boundaries, planPoints, accessContacts] =
     await Promise.all([
       asObjects<ProjectSamplingSpec>(
@@ -113,7 +132,7 @@ export async function assembleLiveBundle(
                   MAX_PLAN_OFFSET_M_WARN AS max_plan_offset_m_warn, MAX_PLAN_OFFSET_M_BLOCK AS max_plan_offset_m_block,
                   DEFAULT_LAB_ID AS default_lab_id
              FROM REF.PROJECT_SAMPLING_SPEC
-            WHERE PERIOD_CODE = ? AND (EFFECTIVE_END IS NULL OR EFFECTIVE_END >= CURRENT_DATE())`,
+            WHERE PERIOD_CODE = ? AND (EFFECTIVE_END IS NULL OR EFFECTIVE_END >= ${currentDate})`,
           { binds: [input.period] },
         ),
       ),
@@ -169,8 +188,8 @@ export async function assembleLiveBundle(
   });
 }
 
-/** See module comment -- the one guessed piece, isolated here. */
-async function boundaryIdsForCrew(sf: SnowflakeClient, period: string): Promise<string[]> {
+/** See module comment -- the one guessed piece, isolated here. Plain ANSI SQL, no dialect gap. */
+async function boundaryIdsForCrew(sf: SqlClient, period: string): Promise<string[]> {
   const rows = asObjects<{ boundary_id: string }>(
     await sf.execute(
       `SELECT DISTINCT BOUNDARY_ID FROM CURATED.SAMPLE_PLAN
@@ -181,11 +200,22 @@ async function boundaryIdsForCrew(sf: SnowflakeClient, period: string): Promise<
   return rows.map((r) => r.boundary_id);
 }
 
-async function loadBoundaries(sf: SnowflakeClient, boundaryIds: string[]): Promise<AssignedBoundary[]> {
+/**
+ * Dialect gap gated on `capabilities.geospatial`, per contract -- not a new
+ * flag. On Snowflake, `V_BOUNDARY_ENTITY.GEOG` is real geography and this
+ * derives GeoJSON/bbox/centroid with `ST_*`. On Postgres there is no PostGIS,
+ * but nothing here is silently missing: `CURATED.BOUNDARY_CACHE` (the table
+ * `V_BOUNDARY_ENTITY` is a view over, on that backend --
+ * `postgres_sampling_v01.sql` §3/§8) stores GeoJSON and the bbox/centroid
+ * PRECOMPUTED, specifically so this read needs no geospatial engine. The two
+ * branches project to the *same* column aliases so the row-mapping below is
+ * shared and cannot drift between backends.
+ */
+async function loadBoundaries(sf: SqlClient, boundaryIds: string[]): Promise<AssignedBoundary[]> {
   if (boundaryIds.length === 0) return [];
-  const rows = asObjects<Record<string, string | null>>(
-    await sf.execute(
-      `SELECT b.BOUNDARY_ID AS boundary_id, b.PROPERTY_ID AS property_id,
+  const placeholders = boundaryIds.map(() => '?').join(',');
+  const sql = capsOf(sf).geospatial
+    ? `SELECT b.BOUNDARY_ID AS boundary_id, b.PROPERTY_ID AS property_id,
               b.PROPERTY_NAME AS property_name, NULL AS operation_name,
               ST_ASGEOJSON(b.GEOG) AS geojson_raw,
               ST_XMIN(b.GEOG) AS west, ST_YMIN(b.GEOG) AS south,
@@ -196,9 +226,21 @@ async function loadBoundaries(sf: SnowflakeClient, boundaryIds: string[]): Promi
               p.PERIOD_CODE AS period_code, NULL AS sort_order
          FROM CURATED.V_BOUNDARY_ENTITY b
          JOIN CURATED.SAMPLE_PLAN p ON p.BOUNDARY_ID = b.BOUNDARY_ID AND p.STATUS = 'released'
-        WHERE b.BOUNDARY_ID IN (${boundaryIds.map(() => '?').join(',')})`,
-      { binds: boundaryIds },
-    ),
+        WHERE b.BOUNDARY_ID IN (${placeholders})`
+    : `SELECT b.BOUNDARY_ID AS boundary_id, b.PROPERTY_ID AS property_id,
+              b.PROPERTY_NAME AS property_name, NULL AS operation_name,
+              b.GEOJSON AS geojson_raw,
+              b.BBOX_WEST AS west, b.BBOX_SOUTH AS south,
+              b.BBOX_EAST AS east, b.BBOX_NORTH AS north,
+              b.CENTROID_LAT AS centroid_lat, b.CENTROID_LON AS centroid_lon,
+              b.GEOM_ACRES AS geom_acres, b.TRS_CANONICAL AS trs_canonical,
+              NULL AS access_note, p.PLAN_ID AS plan_id, p.SPEC_ID AS spec_id,
+              p.PERIOD_CODE AS period_code, NULL AS sort_order
+         FROM CURATED.V_BOUNDARY_ENTITY b
+         JOIN CURATED.SAMPLE_PLAN p ON p.BOUNDARY_ID = b.BOUNDARY_ID AND p.STATUS = 'released'
+        WHERE b.BOUNDARY_ID IN (${placeholders})`;
+  const rows = asObjects<Record<string, string | null>>(
+    await sf.execute(sql, { binds: boundaryIds }),
   );
   return rows.map((r) => ({
     boundary_id: String(r.boundary_id),
@@ -219,7 +261,7 @@ async function loadBoundaries(sf: SnowflakeClient, boundaryIds: string[]): Promi
   }));
 }
 
-async function loadPlanPoints(sf: SnowflakeClient, boundaryIds: string[]): Promise<BundlePlanPoint[]> {
+async function loadPlanPoints(sf: SqlClient, boundaryIds: string[]): Promise<BundlePlanPoint[]> {
   if (boundaryIds.length === 0) return [];
   const rows = asObjects<Record<string, string | null>>(
     await sf.execute(
@@ -254,12 +296,18 @@ async function loadPlanPoints(sf: SnowflakeClient, boundaryIds: string[]): Promi
 
 /**
  * **Guessed table**, same footing as `V_BOUNDARY_ENTITY` — no `ACCESS_CONTACT`
- * table exists in this repo's DDL. Access contacts are the entire BYOD
+ * table exists in either DDL file (confirmed absent from
+ * `postgres_sampling_v01.sql` too — schema-steward's report §7 lists it as
+ * out of scope on purpose). Access contacts are the entire BYOD
  * data-exposure story (contract §2), so returning an empty list rather than
  * guessing wrong is the safer failure mode until the table is confirmed;
  * this still attempts the query so a correct guess needs no code change.
+ *
+ * The failure is swallowed to `[]` deliberately (agent file non-negotiable),
+ * but logged rather than silent — "no access contacts" and "the query
+ * errored" must not read the same to whoever operates this.
  */
-async function loadAccessContacts(sf: SnowflakeClient, boundaryIds: string[]): Promise<AccessContact[]> {
+async function loadAccessContacts(sf: SqlClient, boundaryIds: string[]): Promise<AccessContact[]> {
   if (boundaryIds.length === 0) return [];
   try {
     const rows = asObjects<Record<string, string | null>>(
@@ -281,7 +329,18 @@ async function loadAccessContacts(sf: SnowflakeClient, boundaryIds: string[]): P
       phone: r.phone ?? null,
       is_primary: r.is_primary === 'true' || r.is_primary === '1',
     }));
-  } catch {
+  } catch (err) {
+    // Deliberately still returns []  (task: "keep the failure visible in a
+    // log rather than making it quieter") -- empty access_contacts is the
+    // entire BYOD data-exposure story shipping blank, so an operator needs a
+    // way to tell "genuinely none configured" from "the query broke" without
+    // reading this source file.
+    console.error(
+      'assignments/bundle: loadAccessContacts query against CURATED.ACCESS_CONTACT failed ' +
+        '(guessed table name -- see integration/requests-a.md); serving access_contacts: [] ' +
+        'for this bundle rather than failing the whole request.',
+      err,
+    );
     return [];
   }
 }

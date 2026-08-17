@@ -188,7 +188,12 @@ export class GpsAcquisition {
 export interface GpsCaptureResult {
   lat: number;
   lon: number;
-  gps_accuracy_m: number;
+  /**
+   * Null when nothing measured it. A dropped pin has no accuracy, and **zero
+   * is not "no accuracy"** — `0` in that column reads as a perfect measurement
+   * to anyone querying the warehouse in 2029, which is worse than a blank.
+   */
+  gps_accuracy_m: number | null;
   altitude_m: number | null;
   altitude_accuracy_m: number | null;
   position_provider: string;
@@ -211,7 +216,7 @@ export function manualPinCapture(lat: number, lon: number): GpsCaptureResult {
   return {
     lat,
     lon,
-    gps_accuracy_m: 0,
+    gps_accuracy_m: null,
     altitude_m: null,
     altitude_accuracy_m: null,
     position_provider: 'manual',
