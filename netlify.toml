@@ -7,7 +7,20 @@
 # ==============================================================================
 
 [build]
-  command = "npm run build"
+  # The migration runs AFTER the bundle so a broken build never mutates the
+  # database -- tsc and vite both have to pass first. It is idempotent (77
+  # guarded statements behind a pg_advisory_xact_lock, ledgered in
+  # META.SCHEMA_MIGRATION), so running it on every deploy is a no-op after the
+  # first, and a freshly provisioned Netlify database self-provisions its schema
+  # on the first deploy with no manual step.
+  #
+  # It goes through migrate-on-deploy.mjs rather than calling db:migrate
+  # directly because db:migrate exits 1 when NETLIFY_DATABASE_URL is absent --
+  # right for a run somebody asked for, wrong for an unconditional build step,
+  # since the Snowflake and mock backends have no Postgres URL and their deploys
+  # must not fail on its absence. The wrapper skips when the URL is missing and
+  # fails the deploy when it is present and the migration breaks.
+  command = "npm run build && npm run db:migrate:deploy"
   publish = "dist"
   functions = "netlify/functions"
 

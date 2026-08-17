@@ -34,3 +34,47 @@ None of these block local dev or tests — `MOCK_SNOWFLAKE=1` (or no
 `SNOWFLAKE_ACCOUNT`) routes A2/C7/C8/C12 through F0.7 fixtures instead
 (`src/server/dev/mock-mode.ts`, `fixtures.ts`). They block a real pilot
 deploy. See `SONNET_TASKS_STATUS.md` for the full rundown.
+
+---
+
+**2026-08-17 · schema-steward (Netlify database / SQL port pass) ·** Two
+one-line changes needed in paths I do not own. Both are recorded in
+`.claude/fleet/reports/schema-steward-netlify-db.md`; this is the queue copy.
+
+1. **`src/server/dev/mock-mode.ts` — `isMockMode()` is now wrong when the
+   Postgres backend is selected.** It reads
+   `MOCK_SNOWFLAKE === '1' || !process.env.SNOWFLAKE_ACCOUNT`. With
+   `SQL_BACKEND=postgres` (or `NETLIFY_DATABASE_URL` set and no Snowflake
+   credentials, which is the whole MVP configuration) the second clause is true,
+   so every endpoint that consults it serves fixtures and **the Netlify database
+   is never reached**. Requested replacement, which subsumes the old behaviour
+   including the `MOCK_SNOWFLAKE=1` escape hatch and the bare-checkout default:
+
+   ```ts
+   import { sqlBackend } from '../env.js';
+   export function isMockMode(): boolean {
+     return sqlBackend() === 'mock';
+   }
+   ```
+
+   Owner: `server-endpoints` (`src/server/dev/**`). There is a failing-on-purpose
+   test documenting the hazard at
+   `tests/unit/postgres-adapter.test.ts` → *"the mock-mode composition hazard"*;
+   it asserts the CURRENT (wrong) behaviour, so it will start failing the moment
+   this is fixed. Delete that test in the same change.
+
+2. **`src/shared/auth/audit.ts` — `AuditWriterOptions.snowflake` should widen to
+   `SqlClient`.** One line:
+
+   ```ts
+   import type { SqlClient } from '../db/port.js';
+   export interface AuditWriterOptions { snowflake: SqlClient; ipHashSalt: string; }
+   ```
+
+   Not urgent: the auth surface is deliberately out of scope for the Netlify
+   database and keeps serving the mock/fixture path, and `/ingest/commit` and
+   `/ingest/retire` write `CURATED.AUDIT_EVENT` through their own statements
+   rather than through `AuditWriter`. Until it is widened, `auditWriter()` in
+   `src/server/env.ts` throws a named error on any backend other than Snowflake
+   rather than surfacing as "missing SNOWFLAKE_ACCOUNT" three layers down.
+   `src/shared/auth/**` is unowned in FLEET.md §1 — it needs an owner assigned.

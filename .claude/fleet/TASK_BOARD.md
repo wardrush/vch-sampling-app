@@ -95,6 +95,54 @@ it). **B5 is therefore unblocked.**
 | **C14** · Analyst review queue | `server-endpoints` | Reads `CURATED.V_SAMPLE_REVIEW_QUEUE`, which exists. **v02 R1: first thing cut if the schedule slips** |
 | **B13** · PMTiles route-pack builder | `map-surface` | Measure a real fall assignment; do not ship the estimate as a promise. Needs pre-work 5 |
 
+## Netlify DB backend (MVP/UAT) — steward pass done 2026-08-17
+
+**Decision:** MVP/UAT storage is a Netlify database (Neon Postgres); Snowflake stays a
+first-class backend behind `SQL_BACKEND`. Reason is schedule, and it is the user's call
+— pre-work item 1 (Snowflake service user) is a three-day approval and testers reacting
+to a running system beats waiting for the perfect warehouse. **Geospatial is deferred
+(no PostGIS); scope is sync/derive + ingest only**; auth and the analyst queue keep
+serving fixtures.
+
+Landed: the `SqlClient` port (`src/shared/db/port.ts`), the Neon adapter, 990 lines of
+Snowflake DDL translated to `postgres_sampling_v01.sql`, `SQL_BACKEND` wiring in
+`env.ts`, and an idempotent 77-statement migration runner behind a
+`pg_advisory_xact_lock` wired into the Netlify build. Additive throughout — all 24
+existing Snowflake importers compile untouched.
+
+**Geospatial absence is structurally enforced, not documented.** A CHECK constraint
+makes `REVIEW_STATE = 'screened'` impossible without a real geo derivation, so the
+Postgres path cannot record a pass it did not perform; the clean state is
+`screened_partial` and `V_SAMPLE_GEO_ASSURANCE.ASSURANCE_VERDICT` reads
+`clean_geo_unverified`. **`boundary_id` is nullable with no sentinel — decided**, because
+"checked, outside all boundaries" is a finding and "never checked" is not, and one
+sentinel cannot encode both.
+
+### Wave B — port the queries behind the port
+
+| Task | Agent | Notes |
+|---|---|---|
+| **N1** · `isMockMode()` returns `true` whenever `SNOWFLAKE_ACCOUNT` is absent — **i.e. the entire MVP configuration**, so the Netlify database is never reached | `server-endpoints` | **Blocks everything.** One line, in `requests-a.md`. A deliberately-failing test documents the hazard and must be deleted in the same change |
+| **N2** · Port `src/server/{sync,derive}/**` to `SqlClient`: 10 `MERGE`→`ON CONFLICT`, `PARSE_JSON`→`::jsonb`, `QUALIFY`→subquery | `sync-spine` | Must use `cleanReviewStateFor()` from `db/geo-assurance.ts` or the CHECK fires. **RAW content hash must be over original bytes**, not the jsonb round-trip — `05-rebuild-from-raw` asserts it |
+| **N3** · Port `src/ingest/**` queries | `ingest-lane` at **`model: sonnet`** | Escalated from haiku deliberately: dialect porting is not "the answer is already written down", which is the only thing that makes the cheap tier safe |
+
+### Blocking the Postgres path end-to-end
+
+| # | Item | Why it blocks |
+|---|---|---|
+| 1 | **`CURATED.BOUNDARY_CACHE` has no loader.** Writing one needs the real `VCH_GEO` source table names | With the cache empty `/ingest/validate` **blocks every row**, so plan-point upload is unusable. Needs the same human answer as the three schema-name gaps |
+| 2 | `src/shared/auth/**` is **unowned** in FLEET.md §1 | `AuditWriterOptions.snowflake` needs widening to `SqlClient`. Not urgent (auth is out of scope) but the path needs an owner |
+
+### Real drift found, not fixed
+
+The Snowflake seeds carry `OFFSET_WITHOUT_REASON` but the code raises
+`OFFSET_EXCEEDED_NO_REASON`, and `GEOM_INVALID` is seeded nowhere — the bootstrap's
+own check cannot detect either. The Postgres seeds all 17 codes from
+`src/shared/codes/index.ts` and assert completeness at deploy time. **The Snowflake
+files were deliberately not edited** — that is a separate, human-reviewed change.
+
+---
+
 ## Wave 4 — close out
 
 | Task | Agent | Notes |

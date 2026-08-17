@@ -1,8 +1,15 @@
 /**
  * A1 — Snowflake SQL API v2 client, key-pair JWT, stateless.
  *
- * **Lane C's `/ingest/validate` and every Lane A function import this.** It is
- * the only place in the build that talks to the warehouse.
+ * **One of two backends behind `SqlClient`** (`src/shared/db/port.ts`), and the
+ * one this goes to in production. Selected by `SQL_BACKEND=snowflake`; still
+ * fails loudly without its own credentials, exactly as before.
+ *
+ * `StatementResult`, `ColumnMeta`, `ExecuteOptions`, `BindValue`, `asObjects` and
+ * `scalar` now live in the port and are re-exported here, so every existing
+ * `import … from '.../snowflake/client.js'` keeps working unchanged. The
+ * Postgres adapter normalises *into* this file's representation rather than
+ * getting one of its own.
  *
  * Shape decisions worth defending:
  *
@@ -20,6 +27,30 @@
 
 import { randomUUID } from 'node:crypto';
 import { createJwtProvider, type KeyPairJwtConfig } from './jwt.js';
+import {
+  SNOWFLAKE_CAPABILITIES,
+  type BindValue,
+  type ColumnMeta,
+  type ExecuteOptions,
+  type SqlCapabilities,
+  type SqlClient,
+  type SqlDialect,
+  type StatementResult,
+} from '../db/port.js';
+
+// Re-exported so existing importers of this module do not change. The canonical
+// definitions are in the port; `Binding` / `toBinding` stay here because the
+// `{type, value}` envelope is the SQL API's wire form and nothing else uses it.
+export type {
+  BindValue,
+  ColumnMeta,
+  ExecuteOptions,
+  SqlCapabilities,
+  SqlClient,
+  SqlDialect,
+  StatementResult,
+} from '../db/port.js';
+export { asObjects, scalar, asIsoTimestamp } from '../db/port.js';
 
 export interface SnowflakeConfig extends KeyPairJwtConfig {
   /** Hostname, e.g. `xy12345.us-east-1.snowflakecomputing.com`. */
@@ -40,8 +71,6 @@ export interface Binding {
   type: 'TEXT' | 'FIXED' | 'REAL' | 'BOOLEAN' | 'TIMESTAMP_NTZ' | 'DATE';
   value: string | null;
 }
-
-export type BindValue = string | number | boolean | null | undefined | Date;
 
 /**
  * JS value → SQL API binding.
@@ -73,21 +102,6 @@ export function toBindings(values: readonly BindValue[]): Record<string, Binding
   return out;
 }
 
-export interface ColumnMeta {
-  name: string;
-  type: string;
-  nullable?: boolean;
-}
-
-export interface StatementResult {
-  statementHandle: string;
-  columns: ColumnMeta[];
-  /** Row-major, values as strings — the SQL API's own representation. */
-  rows: (string | null)[][];
-  numRowsInserted?: number;
-  numRowsUpdated?: number;
-}
-
 export class SnowflakeError extends Error {
   constructor(
     message: string,
@@ -106,18 +120,10 @@ const POLL_INTERVAL_MS = 500;
 const MAX_POLL_INTERVAL_MS = 4_000;
 const MAX_ATTEMPTS = 4;
 
-export interface ExecuteOptions {
-  binds?: readonly BindValue[];
-  /** Statement-level timeout passed to Snowflake, in seconds. */
-  timeoutSeconds?: number;
-  /** Set for `stmt1; stmt2; …`. Snowflake requires the exact count. */
-  multiStatementCount?: number;
-  /** Reuse across a caller-level retry to keep server-side deduplication. */
-  requestId?: string;
-  deadlineMs?: number;
-}
+export class SnowflakeClient implements SqlClient {
+  readonly dialect: SqlDialect = 'snowflake';
+  readonly capabilities: SqlCapabilities = SNOWFLAKE_CAPABILITIES;
 
-export class SnowflakeClient {
   private readonly jwt: () => string;
   private readonly doFetch: typeof globalThis.fetch;
   private readonly now: () => number;
@@ -313,24 +319,3 @@ interface SqlApiResultSet {
   stats?: { numRowsInserted?: number; numRowsUpdated?: number };
 }
 
-/**
- * Maps a `StatementResult` to objects keyed by column name, lowercased.
- *
- * Snowflake returns unquoted identifiers uppercased. Lowercasing here means
- * server code reads `row.sample_uid` and matches the shape of everything else
- * in the codebase rather than shouting.
- */
-export function asObjects<T = Record<string, string | null>>(result: StatementResult): T[] {
-  return result.rows.map((row) => {
-    const obj: Record<string, string | null> = {};
-    result.columns.forEach((col, i) => {
-      obj[col.name.toLowerCase()] = row[i] ?? null;
-    });
-    return obj as T;
-  });
-}
-
-/** The one-row, one-column case, which is most of the pipeline's reads. */
-export function scalar(result: StatementResult): string | null {
-  return result.rows[0]?.[0] ?? null;
-}
