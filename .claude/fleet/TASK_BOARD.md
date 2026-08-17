@@ -59,7 +59,65 @@ it). **B5 is therefore unblocked.**
 
 ---
 
-## Wave 2 — GO. Consume wave 1, produce nothing each other needs
+## Wave 2 — DONE 2026-08-17. Gate: typecheck clean, 31 files / 300 passed / 1 skipped
+
+**There is a demonstrable flow now.** Screens went from 84 lines of placeholder to ~2,200
+lines. `B4` `B5` `B7` `B11` (`pwa-screens`) · `B9` `B10` `B12` (`spec-transcriber`) ·
+capture path (`capture-integrity`) · `assignments-bundle` ported to `SqlClient`
+(`server-endpoints`).
+
+**Demo:** `MOCK_SNOWFLAKE=1` → Today → Field (6 points on a real `<BoundaryMap>`) →
+Capture (live `getUserMedia` photo, barcode, chips) → Outbox. Full walkthrough in
+`.claude/fleet/reports/pwa-screens-wave2.md`.
+
+### Criterion 11 is met, and enforced rather than asserted
+
+A gallery photo cannot satisfy a required role — four layers, three CI-enforced: the type
+(`addGalleryPhoto` takes `OptionalMediaRole`; widening it fails typecheck), a guard that
+refuses *before* `file.arrayBuffer()` is called, `capture_source: 'in_app_camera'` minted
+in exactly one place tree-wide with a source scan asserting it, and a record-level test.
+Each was verified to fail when removed.
+
+### Integrity defects found across lane boundaries
+
+`capture-integrity` audited `pwa-screens`' code and found two real ones, both closed:
+
+1. **EXIF timestamps were unrecoverably wrong.** `.toISOString()` on `exifr`'s revived
+   zoneless `DateTimeOriginal` treats it as local, so a US/Central phone stored
+   `2026-10-02T20:00:00Z` for a **15:00** photograph. The zone was invented, the original
+   lost.
+2. **`getPhotoStore()` silently fell back to in-memory** — until upload those bytes are
+   the only copy of the evidence.
+
+Also fixed: `manualPinCapture` wrote `gps_accuracy_m: 0` for a dropped pin. Zero reads as
+a *perfect* measurement in 2029; now `null`.
+
+### Accepted trade-off, stated rather than hidden
+
+Required-role photos are **`getUserMedia` only, with no `<input capture>` fallback** — on
+desktop that element is just a file picker, and the schema has no value meaning "we asked
+for a camera and got a file browser". A `getUserMedia` frame carries **no EXIF**, so
+`EXIF_POSITION_MISMATCH` has nothing to compare on required photos. Nothing was destroyed;
+there was never anything there. It returns with the Capacitor native camera.
+
+### Known gaps, named not invented
+
+No dev-time proxy from `vite` to Netlify functions, so under plain `npm run dev` the
+bundle fetch falls back to the fixture and Outbox sync **reports failure honestly** — use
+`netlify dev` or a deploy for the real sync path. `local_status` is not preserved across a
+second bundle re-apply; one `field_visit` per boundary; multi-spec-per-boundary unwired;
+no photo-removal UI.
+
+### Protocol note
+
+`spec-transcriber` wrote `src/app/App.tsx`, which is **`pwa-screens`'** (§4 rule 2), while
+`pwa-screens` was concurrently writing it. Verified at the gate: `pwa-screens`' version won
+and wires all six screens including `spec-transcriber`'s two, so nothing was lost — but
+that was luck, not the protocol working.
+
+---
+
+## Wave 2 (original plan) — superseded by the above
 
 | Task | Agent | Notes |
 |---|---|---|

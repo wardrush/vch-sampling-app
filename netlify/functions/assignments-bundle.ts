@@ -6,7 +6,7 @@
 import { assembleLiveBundle } from '../../src/server/assignments/bundle.js';
 import { isMockMode } from '../../src/server/dev/mock-mode.js';
 import { loadBundleFixture } from '../../src/server/dev/fixtures.js';
-import { snowflake } from '../../src/server/env.js';
+import { sqlClient } from '../../src/server/env.js';
 import type { AssignmentBundle } from '../../src/shared/contract/bundle.js';
 
 export default async function handler(request: Request): Promise<Response> {
@@ -20,7 +20,7 @@ export default async function handler(request: Request): Promise<Response> {
   }
   const ifNoneMatch = request.headers.get('if-none-match');
 
-  const bundle = isMockMode() ? mockBundle() : await assembleLiveBundle({ crewOrgId, period }, { snowflake: snowflake() });
+  const bundle = isMockMode() ? mockBundle() : await assembleLiveBundle({ crewOrgId, period }, { snowflake: sqlClient() });
 
   if (ifNoneMatch && ifNoneMatch === bundle.etag) {
     return new Response(null, { status: 304, headers: { etag: bundle.etag, 'cache-control': 'no-cache' } });

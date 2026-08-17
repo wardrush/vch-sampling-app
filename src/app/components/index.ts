@@ -11,3 +11,5 @@ export { Badge } from './Badge.js';
 export { Input } from './Input.js';
 export { ConditionChip } from './ConditionChip.js';
 export { DeviationChip } from './DeviationChip.js';
+export { DeviationPicker } from './DeviationPicker.js';
+export { DepthCoresToggle } from './DepthCoresToggle.js';
