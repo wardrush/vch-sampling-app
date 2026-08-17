@@ -128,7 +128,7 @@ agents, which makes it the strongest signal on this board.**
 
 | # | Unspecified | Raised by | Consequence today |
 |---|---|---|---|
-| 1 | **Glove/wind/low-sun palette hex values.** v02 §4.3 fixes the requirement and names no colour | **`spec-transcriber` + `map-surface`** | Two independent placeholder sets exist. Needs a design decision, not an agent. Binding is clean — `global.css` has zero colour values and the shell imports `SEMANTIC_COLORS` — so the swap stays cheap |
+| 1 | ~~**Glove/wind/low-sun palette hex values**~~ — **RESOLVED 2026-08-17.** Taken from the company's live site: sand / moss / gold, with Quicksand and the VCH logo. See "Brand pass" below | ~~`spec-transcriber` + `map-surface`~~ | Closed. The clean binding predicted here paid off — the swap touched one token file plus the map's own constants |
 | 2 | Drift tolerance (seconds) for `CLOCK_DRIFT_SUSPECTED` | `defect-rules` | Rule unimplemented, correctly pending. Belongs in `REF.PROJECT_SAMPLING_SPEC` |
 | 3 | Distance threshold (metres) for `EXIF_POSITION_MISMATCH` | `defect-rules` | Same. v02 §9 says "needs a distance threshold" without naming one |
 | 4 | Long-press threshold + move tolerance | `map-surface` | 500 ms / 10 px used, from Android's `getLongPressTimeout()` default. Needs real-device confirmation |
@@ -137,6 +137,30 @@ agents, which makes it the strongest signal on this board.**
 **Escalation health:** no agent stopped twice for the same reason, so nothing was
 mis-tiered. Both haiku agents stopped exactly where their specs ran out and neither
 invented a threshold — FLEET.md §4 rule 6 working as designed.
+
+---
+
+## Brand pass — 2026-08-17
+
+The identity now comes from Veteran's Carbon Holdings' own site: three named scales
+(**sand** grounds/text, **moss** actions, **gold** accent), **Quicksand** 400/600/700
+self-hosted, and the VCH logo as the icon set. Precache went 15 → 25 entries as fonts
+and icons joined the wasm binary, so the app keeps its typeface offline.
+
+**Roles were assigned from measured WCAG contrast, not copied from the website.** The
+site's own gold usage does not survive this app's conditions — `text-gold-700` on the
+sand ground is 3.44:1 and white on `bg-gold-700` is 3.81:1, both below AA. Gold is
+therefore accent/border/large-text only; moss carries actions (8.73:1); sand carries
+body text (13.88:1). The brand values are unchanged — only which role each fills.
+
+### Still open after the pass
+
+| # | Item | Owner | Why it matters |
+|---|---|---|---|
+| 1 | **The brand has no red.** The site ships Tailwind's red scale but never uses it. A functional red is in place for blocking defects, commented as functional-not-brand | design review, then `spec-transcriber` | A field app must show a blocking defect unmistakably. Confirm this red or supply an official one |
+| 2 | **`FONT_SIZES.base` is 14 px** in `components/tokens/index.ts` while the shell body is now 17 px | `spec-transcriber` (wave 2) | Raised by `pwa-screens` across a path boundary. Quicksand has a low x-height and this is read at arm's length in gloves and low sun. Two different base sizes is also drift waiting to happen |
+| 3 | **Gold does double duty on the map** — `gold-500` for the unrecognised-status pin, `gold-700` for the boundary stroke | `map-surface` | Distinguishable by shade and shape, but it is the one place the brand's "contrasts against green/brown aerial imagery" set is effectively just gold. Ingest's `flagged` fixture is already an amber |
+| 4 | **Moss and sand are the colours of the ground the imagery shows** | `map-surface` | Boundary fills are a 12% wash so blending is acceptable; strokes and pins got legibility treatment instead. Confirm on a real device over real imagery |
 
 ---
 

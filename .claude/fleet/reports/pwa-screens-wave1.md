@@ -198,3 +198,114 @@ source path. Recording here per this report's "Stopped, and why" instead:
 `src/main.tsx` and the pre-existing part of `index.html` (everything but the new
 comment) were already correct from an earlier F0.1 pass and needed no changes — noted in
 "Landed" rather than reported as new work.
+
+---
+
+## Brand pass
+
+**Task:** wire the already-placed brand assets (`public/icons/**`, `public/fonts/**`) —
+typeface, icons/favicon, and shell chrome — now that `public/**` is mine per FLEET.md §1
+this wave. `vite.config.ts` (orchestrator-owned) already carries the real manifest name,
+`theme_color: '#132719'`, `background_color: '#f8f3ea'`, maskable icon entry, and
+`workbox.globPatterns` extended to precache `wasm`/`woff2`/`woff` — I did not touch it,
+just built against it.
+
+**Gate:** `npm run typecheck && npm test` → **pass, 20 test files, 166 passed, 1
+skipped** — same counts as wave 1's B1 baseline, run twice: once before this pass and
+once after, the second time against a tree `spec-transcriber` had concurrently modified
+(`Button.tsx`, `tokens/colors.ts`) and `map-surface` had modified (`shared/map/style.ts`)
+— neither is mine, listed here only to show nothing in my own paths regressed. Per
+FLEET.md §4.5 the authoritative run is still `fleet-integrator`'s.
+
+`npm run build` succeeds: 25 precache entries (up from 14 at wave-1 baseline) — verified
+by hand that all six Quicksand font files, all five icon files, and the wa-sqlite wasm
+binary are now in `dist/sw.js`'s precache manifest (`grep`'d for `quicksand-*.woff2?`,
+`icons/*.png`, and `wasm` — all present). `dist/` removed afterward (gitignored).
+
+`npm run dev` serves `/` at 200, `/fonts/quicksand-400.woff2` at 200,
+`/icons/favicon-48.png` at 200, `/icons/apple-touch-icon.png` at 200, and every module
+path I touched (`src/main.tsx`, `src/app/App.tsx`) transforms cleanly through Vite.
+
+### Landed
+
+| File | What it does |
+|---|---|
+| `index.html` | `<meta name="theme-color" content="#132719">` (was a placeholder `#0b3d2e`, now moss-900, matching the manifest exactly — this is the one file in my paths allowed a literal hex, per the task); `<link rel="icon">` → `/icons/favicon-48.png`; `<link rel="apple-touch-icon">` → `/icons/apple-touch-icon.png`; `<title>` → "Veteran's Carbon Holdings — Sampler". |
+| `src/app/styles/global.css` | Three `@font-face` blocks (Quicksand 400/600/700), each `woff2` with a `woff` fallback, `font-display: swap`, sourced only from `/fonts/**` — no Google Fonts, no remote URL anywhere. `body`'s `font-family` now leads with `'Quicksand'` before the existing system-ui fallback stack (fallback stack kept verbatim as the cold-start/failure path). Still zero colour values in this file — the brand pass added typeface, not palette. |
+| `src/app/shell/AppShell.tsx` | New `<BrandBar>`: a slim top strip (icon-192 mark + "Veteran's Carbon Holdings" wordmark) above the existing `UpdateBanner`/`Outlet`/`BottomNav`, bound to `SEMANTIC_COLORS.bgInverse`/`textInverse` (not hex). Bottom-nav label `fontSize` bumped 15→16 for legibility (see below). |
+| `src/app/shell/UpdateBanner.tsx` | Banner text `fontSize` bumped 14→15, same legibility reasoning. No colour or structural change. |
+
+**Deliberately not touched:** `FocusShell.tsx` — no `<BrandBar>` added there. Field/
+Capture/Skip are the screens routes.ts already documents as trading nav chrome for
+screen space ("a muddy thumb has no business finding a nav bar under a live camera
+view"); a brand strip is the same trade in miniature, so I left it nav-less and let
+`SEMANTIC_COLORS.bgPrimary` (already token-bound) carry the ground colour instead of
+adding chrome that competes with capture.
+
+### Legibility adjustment (asked for explicitly in the task)
+
+Quicksand's low x-height at typical web body size (14–16px, per
+`components/tokens/index.ts`'s `FONT_SIZES`) reads thin at arm's length. I do not own
+`FONT_SIZES`/`colors.ts` (spec-transcriber's `components/tokens/**`), so I raised what I
+do own instead of switching typeface, per the instruction:
+
+- `global.css` `body { font-size: 17px }` (explicit — previously unset, inheriting
+  browser default). This only affects elements that inherit body size; most component
+  text sets an explicit px value from `FONT_SIZES` and is unaffected.
+- Bottom-nav labels (`AppShell.tsx`): 15px → 16px.
+- Update-banner text (`UpdateBanner.tsx`): 14px → 15px.
+
+I could not raise `FONT_SIZES.base` (14px) itself — that token is
+`spec-transcriber`'s path (`src/app/components/tokens/index.ts`, under
+`components/**`). Flagging for whoever next touches that file: at Quicksand's x-height,
+14px body copy is likely still tight for the stated read-at-arm's-length/gloves/low-sun
+condition, and 16px would be a more defensible floor once the palette pass finishes.
+
+### Colour discipline
+
+Confirmed via `grep -rn '#[0-9a-fA-F]\{3,8\}' src/app` before and after this pass: the
+only hex in any path I own is `index.html`'s `theme-color` meta (and the comment
+explaining it) — exactly the one exception the task calls out. `colors.ts` is the one
+hit in the repo-wide grep and it is `spec-transcriber`'s concurrent file, not mine.
+Everything I added (`BrandBar`, font-face, nav/banner size bumps) binds to
+`SEMANTIC_COLORS`/`FONT_WEIGHTS`/`SPACING` from `@app/components/tokens`, same as
+wave 1.
+
+### Contract or interface changes others need
+
+None. No exported API changed — this pass only added markup/styling inside files I
+already owned the shape of.
+
+### Stopped, and why
+
+1. **Did not build the six real screens** — the task is explicit that B4/B5/B7/B11 stay
+   wave 2 and B10/B12 are `spec-transcriber`'s. All four placeholders
+   (Today/Field/Capture/Outbox) are unchanged from wave 1 other than inheriting the new
+   `body` font/size through `ScreenPlaceholder.tsx`, which I did not otherwise touch.
+2. **`FONT_SIZES.base` legibility** — named above, not fixed, because it is outside my
+   owned paths.
+3. **`/manifest.webmanifest` still doesn't resolve in dev** (serves the SPA fallback
+   `index.html`, confirmed again this pass by curling it) — this is the same
+   `devOptions.enabled: false` trade-off wave 1 already flagged as a `vite.config.ts`
+   ask, not something the brand pass changes or needed to change; the manifest resolves
+   correctly in the production build, which is what a PWA install actually reads.
+
+### Needs from another agent
+
+None new. The wave-1 `vite.config.ts` asks (wasm/woff/woff2 in `globPatterns`,
+brand `theme_color`/`background_color`/icons) are already satisfied — the orchestrator
+made exactly those changes per this task's brief, confirmed by reading the current
+`vite.config.ts` before starting.
+
+### Files touched (this pass)
+
+```
+ M index.html
+ M src/app/shell/AppShell.tsx
+ M src/app/shell/UpdateBanner.tsx
+ M src/app/styles/global.css
+```
+
+(`git status --short` also shows `spec-transcriber`'s and `map-surface`'s concurrent
+edits to `Button.tsx`, `tokens/colors.ts`, `shared/map/style.ts`, and their own report —
+none of those are mine, listed in the full repo status only, not above.)

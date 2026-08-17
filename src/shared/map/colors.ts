@@ -5,11 +5,26 @@
  * expression covering every point in one paint property (`statusColorExpression`).
  */
 
-/** Neutral grey — used when a point's `status` key is absent from the caller's map. */
-export const DEFAULT_STATUS_COLOR = '#6b7280';
+/**
+ * Fallback fill — used when a point's `status` key is absent from the
+ * caller's `statusColors` map. This is the one point colour this module
+ * itself chooses (every other point colour is caller-supplied), so it is
+ * the one place the brand-pass legibility argument for points actually
+ * applies here: brand `gold-500`, chosen over a neutral grey because an
+ * unrecognised status is worth surfacing as visually distinct rather than
+ * blended into the background, and gold reads reliably against the green/
+ * brown ground a raster satellite basemap actually shows (moss/sand do
+ * not — see the module's brand-pass note in `BoundaryMap.tsx`).
+ */
+export const DEFAULT_STATUS_COLOR = '#d4a832';
 
-/** Highlight colour for the hovered point's stroke, independent of status colour. */
-export const HOVER_STROKE_COLOR = '#111827';
+/**
+ * Highlight colour for the hovered point's stroke, independent of status
+ * colour. Brand `sand-950` — paired with `DEFAULT_POINT_STROKE_COLOR`
+ * (white) in `BoundaryMap.tsx` so the un-hovered/hovered states stay two
+ * legible, brand-only colours rather than one brand and one Tailwind grey.
+ */
+export const HOVER_STROKE_COLOR = '#1f1408';
 
 export function resolveStatusColor(
   status: string,

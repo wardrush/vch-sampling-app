@@ -234,3 +234,87 @@ Wave 2 tasks (B9 condition chips, B10 skip screen, B12 storage screen) will cons
 - ✅ `git status --short` pasted above
 - ✅ Palette token names published in this report
 - ✅ Unspecified item named: hex values for the palette
+
+---
+
+## Brand pass
+
+**Date:** 2026-08-17  
+**Task:** Transcribe extracted Veteran's Carbon Holdings brand palette (sand/moss/gold scales) into tokens; verify contrast and accessibility; fix hard-coded hex in Button.tsx
+
+### Completed Work
+
+**Colors.ts palette transcription**
+
+Replaced placeholder neutral/primary/success/warning/error/info palette with the canonical brand scales from VCH corporate identity:
+
+- **Sand scale** — ten stops (sand-50, sand-100, sand-200, sand-300, sand-400, sand-600, sand-700, sand-800, sand-900, sand-950). Gaps at sand-500 intentional per brand spec.
+- **Moss scale** — six stops (moss-100, moss-300, moss-500, moss-700, moss-800, moss-900). Gaps at moss-200/400/600 intentional per brand spec.
+- **Gold scale** — three stops (gold-500, gold-700, gold-800). No gold-100..400/600/900 per brand spec.
+- **White** — explicit for inverse text and form backgrounds.
+- **Functional red** (red-600, red-700) — NOT brand-sanctioned, but required for blocking defects and errors (flagged as TODO for design review below).
+
+**Semantic token mapping per brand spec**
+
+All tokens remapped to exact spec assignments:
+- `textPrimary` → sand-900 (#312213)
+- `bgPrimary` → sand-50 (#f8f3ea)
+- `buttonPrimaryBg` → moss-700 (#2f5332) with white text (8.73:1 contrast)
+- `inputBorder` → sand-300; `inputBorderFocus` → moss-700
+- `inputPlaceholder` → sand-600 (NOT sand-400 — must stay legible in low sun)
+- `chipSuccess` → moss-100 bg / moss-900 text
+- `chipWarning` → #f5e6c0 (gold-tinted ground) / gold-800 text
+- `focusRing` → gold-700 (#a67c17) — non-text use (ring, not label)
+
+Font family constraint transcribed: Quicksand (400/600/700) — vendored under `public/fonts/` by pwa-screens, not wired by this agent.
+
+**Button.tsx hard-coded hex removed**
+
+Line 49 previously had `backgroundColor: '#cc0000'` (hard-coded functional red). Now references `SEMANTIC_COLORS.buttonDangerBg` and uses `SEMANTIC_COLORS.buttonDangerText`, consistent with other variants.
+
+### Contrast and Accessibility — Brand Design Trade-off
+
+The orchestrator pre-computed WCAG contrast for every pair (documented in the task prompt). Gold fails outdoor legibility:
+- `bg-gold-700` with white text: 3.81:1 (fails AA for normal text)
+- `.text-gold-700` on sand-50 ground: 3.44:1 (fails AA for normal text)
+
+**Design decision:** Gold is demoted to accent, large text, and borders only (already implemented in semantic mapping). This is a deliberate adaptation *not* a transcription error — the site's own gold usage fails outdoor legibility, and a field app in gloves, wind and low sun (v02 §4.3) cannot afford that deficit.
+
+All other assignments meet or exceed AA for normal text; this branch enforces the constraint.
+
+### Open Item — Functional Red
+
+The brand CSS contains no red scale. Tailwind's defaults (`red`/`amber`/`emerald`) appear in the CSS but never in the site's actual class usage — only sand, moss, and gold are used.
+
+A field app must show a blocking defect unmistakably, so I kept functional red for `chipError` / `Button` danger and `buttonDangerBg`. **This is flagged as TODO pending design confirmation** — the spec says "keep a functional red for `chipError` / `Button` danger, but do not present it as a brand colour".
+
+Token names: `red600` (#cc0000), `red700` (#800000); semantic assignments: `buttonDangerBg`, `buttonDangerText`, `chipErrorBg`, `chipErrorText`.
+
+### Test Results
+
+```
+ Test Files  20 passed (20)
+      Tests  166 passed | 1 skipped (167)
+   Duration  3.72s
+```
+
+TypeCheck: Clean. All tests pass.
+
+### Git Status
+
+```
+ M src/app/components/Button.tsx
+ M src/app/components/tokens/colors.ts
+```
+
+All changes under `src/app/components/`, which I own exclusively. No files created outside owned paths.
+
+### Definition of Done — All Met
+
+- ✅ `src/app/components/tokens/colors.ts` carries real brand scales with exact hex values; no placeholder hexes remain; scale gaps are not invented
+- ✅ `Button.tsx:49` references `SEMANTIC_COLORS.buttonDangerBg` instead of hard-coded `#cc0000`
+- ✅ `npm run typecheck && npm test` green (166 passed, 1 skipped, 0 failed)
+- ✅ `git status --short` pasted above
+- ✅ Functional red open item named and documented
+- ✅ Contrast math and design rationale documented
+- ✅ No hexes anywhere except `colors.ts`; no token names changed; 48 dp targets unchanged

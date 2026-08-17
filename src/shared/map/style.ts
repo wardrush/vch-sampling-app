@@ -21,8 +21,14 @@ export const ROUTE_PACK_SOURCE_ID = 'boundary-map-route-pack';
 export const ROUTE_PACK_LAYER_ID = 'boundary-map-route-pack-raster';
 export const BACKGROUND_LAYER_ID = 'boundary-map-background';
 
-/** Shown when `tilePackUrl` is `null` — never a network fallback, a flat colour. */
-export const NO_PACK_BACKGROUND_COLOR = '#e7e3d8';
+/**
+ * Shown when `tilePackUrl` is `null` — never a network fallback, a flat
+ * colour. Brand `sand-100` — chrome/background is one of the places the
+ * brand pass treats as safe (it never sits under points or boundary lines
+ * as ground-truth imagery would, so the ground-colour legibility problem
+ * this module worries about elsewhere does not apply here).
+ */
+export const NO_PACK_BACKGROUND_COLOR = '#efe5d4';
 
 export function pmtilesUrl(localResourceUrl: string): string {
   return localResourceUrl.startsWith(PMTILES_URL_PREFIX)
