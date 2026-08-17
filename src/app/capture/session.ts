@@ -73,6 +73,7 @@ import {
   type MediaBlobStore,
 } from './media-blobs.js';
 import { writeCaptureLocally, type StoredMedia } from './save.js';
+import { assertNoTutorialIdentity } from './tutorial-boundary.js';
 
 /**
  * The spec fields capture reads. Every threshold comes from
@@ -202,6 +203,14 @@ export interface CaptureSaveResult {
 }
 
 export class CaptureSession {
+  /**
+   * Discriminates this from `TutorialCaptureSession`, which carries
+   * `'tutorial'`. Two literal types, so neither class is assignable to the
+   * other and a screen typed on one cannot silently be handed the other. It is
+   * also what a `switch` in a shared component narrows on.
+   */
+  readonly mode = 'production' as const;
+
   readonly sample_uid: string;
 
   private readonly gps: GpsAcquisition;
@@ -224,6 +233,15 @@ export class CaptureSession {
     this.now = options.now ?? Date.now;
     this.newId = options.newId ?? uuidv7;
     this.sample_uid = this.newId();
+    // Before the GPS watch, before a camera, before any byte exists. A
+    // production session pointed at a tutorial plan point is not a session
+    // that should be recoverable — see `tutorial-boundary.ts`.
+    assertNoTutorialIdentity('capture session', {
+      visit_id: options.visit_id,
+      plan_point_id: options.plan_point_id ?? null,
+      sample_uid: this.sample_uid,
+      device_id: options.device_id,
+    });
     this.imaging = options.imaging ?? browserImaging();
     this.camera = options.camera ?? new LiveCameraSource({ now: this.now });
     this.gps = new GpsAcquisition(

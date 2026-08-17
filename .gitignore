@@ -4,3 +4,7 @@ dist/
 *.local
 .env
 .env.*
+
+# Playwright real-browser verification output
+test-results/
+playwright-report/

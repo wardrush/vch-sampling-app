@@ -27,6 +27,7 @@ import type {
   SamplePointPayload,
 } from '../../shared/contract/entities.js';
 import { OutboxStore } from '../../sync/outbox-store.js';
+import { assertNoTutorialIdentity } from './tutorial-boundary.js';
 
 /** A media row plus the local-only columns the wire payload does not carry. */
 export interface StoredMedia {
@@ -64,6 +65,11 @@ export async function writeCaptureLocally(
   const media = write.media ?? [];
   const bags = write.bags ?? [];
   const conditions = write.conditions ?? [];
+
+  // The last gate before SQLite, and the one that holds for callers that are
+  // not `CaptureSession`. Outside the transaction on purpose: nothing has been
+  // written yet when it throws, so there is no partial row to reason about.
+  assertNoTutorialWrite(write, media, bags, conditions);
 
   await transaction(db, async () => {
     if (write.visit) {
@@ -130,6 +136,63 @@ export async function writeCaptureLocally(
     media_ids: media.map((m) => m.payload.media_id),
     queued: 1 + (write.visit ? 1 : 0) + bags.length + conditions.length + media.length,
   };
+}
+
+/**
+ * Every identifier in the write, checked against the reserved tutorial
+ * namespace.
+ *
+ * Plan v02 D18: the tutorial sandbox commit is discarded, never written to a
+ * real plan. `TutorialCaptureSession` has no `SqlDatabase` and so cannot reach
+ * this function at all; this is the guard for the day someone copies a
+ * tutorial payload into a fixture, a repair script, or a "just re-queue it"
+ * console call. A tutorial image cannot get here — `MediaMetaPayload.capture_source`
+ * has no value for it and the compiler stops that — but a tutorial *id* is
+ * just a string, so ids need a runtime check.
+ */
+function assertNoTutorialWrite(
+  write: CaptureWrite,
+  media: readonly StoredMedia[],
+  bags: readonly SampleBagPayload[],
+  conditions: readonly SampleConditionPayload[],
+): void {
+  if (write.visit) {
+    assertNoTutorialIdentity('writeCaptureLocally/field_visit', {
+      visit_id: write.visit.visit_id,
+      boundary_id: write.visit.boundary_id,
+      device_id: write.visit.device_id,
+    });
+  }
+  assertNoTutorialIdentity('writeCaptureLocally/sample_point', {
+    sample_uid: write.sample.sample_uid,
+    visit_id: write.sample.visit_id,
+    plan_point_id: write.sample.plan_point_id,
+    device_id: write.sample.device_id,
+    supersedes_sample_uid: write.sample.supersedes_sample_uid,
+  });
+  for (const bag of bags) {
+    assertNoTutorialIdentity('writeCaptureLocally/sample_bag', {
+      bag_id: bag.bag_id,
+      sample_uid: bag.sample_uid,
+    });
+  }
+  for (const condition of conditions) {
+    assertNoTutorialIdentity('writeCaptureLocally/sample_condition', {
+      condition_id: condition.condition_id,
+      sample_uid: condition.sample_uid,
+    });
+  }
+  for (const item of media) {
+    assertNoTutorialIdentity('writeCaptureLocally/media', {
+      media_id: item.payload.media_id,
+      sample_uid: item.payload.sample_uid,
+      bag_id: item.payload.bag_id,
+      visit_id: item.payload.visit_id,
+      device_id: item.payload.device_id,
+      content_hash: item.payload.content_hash,
+      local_path: item.local_path,
+    });
+  }
 }
 
 /**
