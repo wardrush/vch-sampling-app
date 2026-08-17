@@ -314,50 +314,159 @@ SHOW NETWORK POLICIES;
 --   V_IMPORT_PREVIEW             BOUNDARY (+ GEOM_ACRES, PROPERTY_ID), PROPERTY
 --   V_BAG_LAB_MATCH              LAB_RESULT
 --
--- These views give the DDL the local names it expects while the data stays in
--- VCH_GEO. Read-only by construction: no grant below permits a write back.
+-- RESOLVED FROM DISCOVERY, 2026-08-17. The live warehouse is legacy-named:
+-- there is one table, VCH_GEO.CURATED.FACT_BORDER, and no PROPERTY or
+-- LAB_RESULT table at all. Three consequences, handled below.
 --
--- COLUMN NAMES ON THE RIGHT OF EACH `AS` ARE ASSUMPTIONS. Correct them from
--- Section 1's output before running. If the live tables are FACT_BORDER-era,
--- this is the ONLY place that needs to change -- which is the point of doing
--- it as views rather than editing the DDL.
+--   (a) FACT_BORDER has NO STATUS COLUMN and appears to hold one row per field
+--       per CROP_YEAR. SP_RESOLVE_SAMPLE_BOUNDARY does an UPDATE ... FROM with
+--       ST_WITHIN; if the view exposes every crop year, one sample point falls
+--       inside several years' polygons for the same ground, the update matches
+--       multiple rows, and Snowflake picks one arbitrarily rather than erroring.
+--       Silent, wrong boundary assignment, found in April. 7a therefore filters
+--       to a SINGLE CROP YEAR and that filter is not optional.
+--   (b) BDR_ID is NUMBER; the sampling schema carries BOUNDARY_ID as
+--       VARCHAR(64) throughout. Cast at the view boundary, once, here.
+--   (c) There is no PROPERTY table. FACT_BORDER already carries FARMNAME
+--       denormalised, so 7b synthesises the property from it -- see the note
+--       there on why the key is composite.
+--
+-- Read-only by construction: no grant below permits a write back to VCH_GEO.
+-- If the live names change later, this section is the ONLY thing that changes.
 -- ============================================================================
 
 USE ROLE SYSADMIN;
 USE DATABASE VCH_SAMPLING;
 
+-- CONFIRM THE SOURCE SCHEMA. Discovery returned column names but the schema
+-- was in the other query's output. If FACT_BORDER is not in CURATED, correct
+-- it in the four places below and nowhere else.
+
+-- 7a. BOUNDARY.
+--
+-- CROP_YEAR: set this to the year the pilot samples against. It is the single
+-- most important line in this section. Sampling in autumn 2026 against 2026
+-- borders is the intent; confirm 2026 borders are actually loaded first with
+-- the count query in 7e, because if they are not, the correct answer is to
+-- pilot against 2025 rather than to widen the filter.
+--
+-- STATUS: FACT_BORDER has no such column. GEOG_VALID is the closest honest
+-- equivalent -- a border with invalid geometry cannot be point-in-polygon'd at
+-- all, so it is not 'active' for any purpose this app has.
 CREATE OR REPLACE VIEW CURATED.BOUNDARY AS
-SELECT BOUNDARY_ID,          -- << confirm: may be BORDER_ID
-       PROPERTY_ID,
-       STATUS,               -- SP_RESOLVE_SAMPLE_BOUNDARY filters STATUS = 'active'
-       GEOG,                 -- must be GEOGRAPHY; ST_WITHIN depends on it
-       GEOM_ACRES
-  FROM VCH_GEO.CURATED.BOUNDARY;
+SELECT BDR_ID::VARCHAR(64)                              AS BOUNDARY_ID,
+       CLIENTID::VARCHAR(64) || '|' || COALESCE(FARMNAME, '')
+                                                        AS PROPERTY_ID,
+       IFF(GEOG_VALID, 'active', 'inactive')            AS STATUS,
+       GEOG,
+       GEOM_ACRES,
+       -- Carried for traceability and for the natural-key fallback the house
+       -- conventions require. Nothing in the DDL selects these; they cost
+       -- nothing and an analyst tracing a point back will want them.
+       CLIENTID,
+       CROP_YEAR,
+       FIELDNAME,
+       FARMNAME,
+       NATURAL_KEY
+  FROM VCH_GEO.CURATED.FACT_BORDER
+ WHERE CROP_YEAR = 2026        -- << THE PILOT YEAR. Not optional. See (a).
+   AND GEOG_VALID = TRUE;
 
+-- 7b. PROPERTY.
+--
+-- No such table exists. FACT_BORDER carries FARMNAME denormalised, so the
+-- property is derived from it. The key is the CLIENTID|FARMNAME pair rather
+-- than CLIENTID alone: one client may farm several named properties, and a
+-- CLIENTID-keyed view would fan the V_IMPORT_PREVIEW join out and return
+-- duplicate preview rows per imported row. The composite is 1:1 by
+-- construction and matches the expression in 7a exactly -- if you edit one,
+-- edit both.
 CREATE OR REPLACE VIEW CURATED.PROPERTY AS
-SELECT PROPERTY_ID,
-       PROPERTY_NAME
-  FROM VCH_GEO.CURATED.PROPERTY;
+SELECT DISTINCT
+       CLIENTID::VARCHAR(64) || '|' || COALESCE(FARMNAME, '')
+                                          AS PROPERTY_ID,
+       FARMNAME                           AS PROPERTY_NAME,
+       CLIENTID
+  FROM VCH_GEO.CURATED.FACT_BORDER
+ WHERE CROP_YEAR = 2026;       -- << keep in step with 7a
 
-CREATE OR REPLACE VIEW CURATED.LAB_RESULT AS
-SELECT LAB_RESULT_ID,
-       LAB_ID,
-       LAB_BARCODE,
-       RECEIVED_DATE,
-       TOC_PCT, TC_PCT, CCE_PCT, BULK_DENSITY_G_CM3, OM_PCT
-  FROM VCH_GEO.CURATED.LAB_RESULT;
+-- 7c. LAB_RESULT -- a real local table, not a pass-through.
+--
+-- Nothing to point at: no lab results exist yet, and the lab itself is
+-- unconfirmed (REF.LAB seeds 'LAB_TBD' pending Agidata). Lab results are part
+-- of this subject area rather than the geo warehouse, so the table belongs
+-- here and lands empty. V_BAG_LAB_MATCH then compiles and reports every bag as
+-- 'unmatched', which is the correct answer until results arrive, and gives
+-- acceptance criterion 8 -- 95% of bags matching on
+-- (lab_id, barcode, received_date) -- somewhere to land.
+--
+-- Column set is exactly what V_BAG_LAB_MATCH selects. Widen it when the real
+-- lab file format is known; do not narrow it.
+CREATE TABLE IF NOT EXISTS CURATED.LAB_RESULT (
+    LAB_RESULT_ID       VARCHAR(64) NOT NULL PRIMARY KEY,
+    LAB_ID              VARCHAR(32) NOT NULL,
+    LAB_BARCODE         VARCHAR(128),        -- joined to SAMPLE_BAG.BARCODE_NORM
+    RECEIVED_DATE       DATE,
+    TOC_PCT             NUMBER(9,4),
+    TC_PCT              NUMBER(9,4),
+    CCE_PCT             NUMBER(9,4),
+    BULK_DENSITY_G_CM3  NUMBER(9,4),
+    OM_PCT              NUMBER(9,4),
+    RAW_FILE_HASH       VARCHAR(64),         -- provenance to the raw lab file
+    LOAD_TS             TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    LOADED_BY           VARCHAR(128)  DEFAULT CURRENT_USER(),
+    ROW_HASH            VARCHAR(64)
+);
 
--- The app role needs to read through to the source objects.
+-- 7d. Read-through grants. SELECT on the one source table, nothing more.
 GRANT USAGE  ON DATABASE VCH_GEO         TO ROLE SAMPLING_APP_RW;
 GRANT USAGE  ON SCHEMA   VCH_GEO.CURATED TO ROLE SAMPLING_APP_RW;
-GRANT SELECT ON TABLE VCH_GEO.CURATED.BOUNDARY   TO ROLE SAMPLING_APP_RW;
-GRANT SELECT ON TABLE VCH_GEO.CURATED.PROPERTY   TO ROLE SAMPLING_APP_RW;
-GRANT SELECT ON TABLE VCH_GEO.CURATED.LAB_RESULT TO ROLE SAMPLING_APP_RW;
+GRANT SELECT ON TABLE    VCH_GEO.CURATED.FACT_BORDER TO ROLE SAMPLING_APP_RW;
 
--- Prove all three resolve before deploying the DDL on top of them.
+-- 7e. VERIFY BEFORE DEPLOYING THE DDL ON TOP.
+
+-- Is the pilot year actually loaded? If 2026 is thin or empty, change the
+-- filter in 7a and 7b to the year that is, and say so out loud -- it changes
+-- which ground the crew is sent to.
+SELECT CROP_YEAR, COUNT(*) AS borders, ROUND(SUM(GEOM_ACRES)) AS acres
+  FROM VCH_GEO.CURATED.FACT_BORDER
+ GROUP BY CROP_YEAR
+ ORDER BY CROP_YEAR DESC;
+
+-- All three resolve.
 SELECT COUNT(*) AS boundary_rows   FROM CURATED.BOUNDARY;
 SELECT COUNT(*) AS property_rows   FROM CURATED.PROPERTY;
-SELECT COUNT(*) AS lab_result_rows FROM CURATED.LAB_RESULT;
+SELECT COUNT(*) AS lab_result_rows FROM CURATED.LAB_RESULT;   -- expect 0
+
+-- BOUNDARY_ID is unique within the filtered year. Must return zero rows.
+-- If it does not, SP_RESOLVE_SAMPLE_BOUNDARY will assign boundaries
+-- non-deterministically and the crop-year filter is not doing its job.
+SELECT BOUNDARY_ID, COUNT(*) AS n
+  FROM CURATED.BOUNDARY
+ GROUP BY BOUNDARY_ID
+HAVING COUNT(*) > 1;
+
+-- PROPERTY_ID is unique. Must return zero rows, or V_IMPORT_PREVIEW fans out.
+SELECT PROPERTY_ID, COUNT(*) AS n
+  FROM CURATED.PROPERTY
+ GROUP BY PROPERTY_ID
+HAVING COUNT(*) > 1;
+
+-- Every boundary resolves to exactly one property. Must return zero rows.
+SELECT b.BOUNDARY_ID
+  FROM CURATED.BOUNDARY b
+  LEFT JOIN CURATED.PROPERTY p ON p.PROPERTY_ID = b.PROPERTY_ID
+ WHERE p.PROPERTY_ID IS NULL;
+
+-- Overlapping polygons within the pilot year. A sample point inside an overlap
+-- hits the same multiple-match problem the crop-year filter fixed, so this
+-- needs an eyeball even though it should be rare. May take a minute on XS;
+-- a handful of adjacent-field slivers is normal, a large count is not.
+SELECT COUNT(*) AS overlapping_pairs
+  FROM CURATED.BOUNDARY a
+  JOIN CURATED.BOUNDARY b
+    ON a.BOUNDARY_ID < b.BOUNDARY_ID
+   AND ST_INTERSECTS(a.GEOG, b.GEOG);
 
 
 -- ============================================================================
@@ -421,7 +530,7 @@ WHERE NOT EXISTS (SELECT 1 FROM REF.PROJECT_SAMPLING_SPEC
 --     chips only, no typing, in gloves and wind.
 INSERT INTO REF.CONDITION_CODE
   (CONDITION_CODE, CODE_SET_VERSION, CONDITION_GROUP, DISPLAY_LABEL, VALUE_TYPE, SORT_ORDER)
-SELECT * FROM VALUES
+SELECT * FROM (VALUES
   ('MOIST_DRY',           'v1', 'moisture', 'Dry',                'none', 10),
   ('MOIST_FIELD_CAP',     'v1', 'moisture', 'Field capacity',     'none', 20),
   ('MOIST_WET',           'v1', 'moisture', 'Wet',                'none', 30),
@@ -439,13 +548,14 @@ SELECT * FROM VALUES
   ('ACCESS_DRY',          'v1', 'access',   'Dry access',         'none', 150),
   ('ACCESS_MUDDY',        'v1', 'access',   'Muddy access',       'none', 160),
   ('ACCESS_RUTTED',       'v1', 'access',   'Rutted access',      'none', 170)
+) AS v(CONDITION_CODE, CODE_SET_VERSION, CONDITION_GROUP, DISPLAY_LABEL, VALUE_TYPE, SORT_ORDER)
 WHERE NOT EXISTS (SELECT 1 FROM REF.CONDITION_CODE);
 
 -- 8c. Deviation reasons. IS_SKIP_REASON = TRUE means the plan point produced
 --     no sample at all -- the Skip screen -- rather than a moved sample.
 INSERT INTO REF.DEVIATION_REASON
   (DEVIATION_REASON_CODE, DISPLAY_LABEL, REQUIRES_NOTE, REQUIRES_PHOTO, IS_SKIP_REASON)
-SELECT * FROM VALUES
+SELECT * FROM (VALUES
   ('OBSTRUCTION',       'Obstruction at planned point', FALSE, FALSE, FALSE),
   ('STANDING_WATER',    'Standing water',               FALSE, FALSE, FALSE),
   ('STANDING_CROP',     'Standing crop',                FALSE, FALSE, FALSE),
@@ -459,13 +569,14 @@ SELECT * FROM VALUES
   ('FIELD_IMPASSABLE',  'Field impassable',             FALSE, TRUE,  TRUE),
   ('POINT_UNDERWATER',  'Point underwater',             FALSE, TRUE,  TRUE),
   ('OTHER_SKIPPED',     'Other -- not sampled',         TRUE,  FALSE, TRUE)
+) AS v(DEVIATION_REASON_CODE, DISPLAY_LABEL, REQUIRES_NOTE, REQUIRES_PHOTO, IS_SKIP_REASON)
 WHERE NOT EXISTS (SELECT 1 FROM REF.DEVIATION_REASON);
 
 -- 8d. Defect codes. The v02 addendum already seeds the three import-related
 --     codes; these are the core server-rule and device set it assumes exists.
 INSERT INTO REF.DEFECT_CODE
   (DEFECT_CODE, DISPLAY_LABEL, DEFAULT_SEVERITY, RAISED_BY, RULE_DESCRIPTION)
-SELECT * FROM VALUES
+SELECT * FROM (VALUES
   ('BARCODE_DUPLICATE',     'Duplicate barcode',           'blocking', 'server_rule', 'Same lab_id + barcode already bound to another bag.'),
   ('BARCODE_UNREAD',        'Barcode not scanned',         'review',   'device',      'Entered manually or not captured. Never normalised in place.'),
   ('MISSING_REQUIRED_MEDIA','Missing required photo',      'blocking', 'server_rule', 'A required media role from the project spec has no in-app-camera photo.'),
@@ -480,6 +591,7 @@ SELECT * FROM VALUES
   ('EXIF_POSITION_MISMATCH','Photo position disagrees',    'review',   'server_rule', 'Photo EXIF fix disagrees with the app fix beyond threshold. Two sources disagreeing is a finding.'),
   ('MEDIA_GALLERY_SOURCED', 'Gallery photo on required role','review', 'server_rule', 'A gallery photo satisfied a required role. The app should prevent this; the rule catches when it did not.'),
   ('MANUAL_POSITION',       'Position entered manually',   'review',   'device',      'Position from a dropped map pin rather than a satellite fix.')
+) AS v(DEFECT_CODE, DISPLAY_LABEL, DEFAULT_SEVERITY, RAISED_BY, RULE_DESCRIPTION)
 WHERE NOT EXISTS (SELECT 1 FROM REF.DEFECT_CODE WHERE DEFECT_CODE = 'BARCODE_DUPLICATE');
 
 -- 8e. Which defects reach the field next morning, per addendum 4.2. Everything
@@ -487,7 +599,7 @@ WHERE NOT EXISTS (SELECT 1 FROM REF.DEFECT_CODE WHERE DEFECT_CODE = 'BARCODE_DUP
 --     mismatch, and pushing those down trains people to ignore the list.
 INSERT INTO REF.DEFECT_FIELD_VISIBILITY
   (DEFECT_CODE, VISIBLE_TO_FIELD, FIELD_GUIDANCE)
-SELECT * FROM VALUES
+SELECT * FROM (VALUES
   ('BARCODE_DUPLICATE',     TRUE,  'Two bags share a barcode. Re-scan both if you are still nearby.'),
   ('BARCODE_UNREAD',        TRUE,  'Barcode was not readable. Photograph the label again if you can reach the point.'),
   ('MISSING_REQUIRED_MEDIA',TRUE,  'A required photo is missing. Revisit and capture it with the in-app camera.'),
@@ -502,6 +614,7 @@ SELECT * FROM VALUES
   ('EXIF_POSITION_MISMATCH',FALSE, NULL),
   ('MEDIA_GALLERY_SOURCED', FALSE, NULL),
   ('MANUAL_POSITION',       FALSE, NULL)
+) AS v(DEFECT_CODE, VISIBLE_TO_FIELD, FIELD_GUIDANCE)
 WHERE NOT EXISTS (SELECT 1 FROM REF.DEFECT_FIELD_VISIBILITY);
 
 -- 8f. The lab. BARCODE_SYMBOLOGY stays NULL by design until Agidata confirms
