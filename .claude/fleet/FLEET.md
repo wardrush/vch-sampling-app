@@ -26,6 +26,73 @@ single working tree. Everything below is aimed at those two facts.
 
 ---
 
+## Starting a session — the human side
+
+*Unnumbered on purpose; §1–§7 are addressed to the orchestrating instance, this part is
+addressed to you.*
+
+**There is no activation step.** Claude Code scans `.claude/agents/` automatically and
+watches it for changes — edit an agent file and the next delegation uses it, no restart.
+What you actually have to get right is four things:
+
+**1 · Be on a branch that has these files.** This is the whole trick. A session started
+on `master` before PR #5 merges has no `.claude/agents/` and will silently behave like
+any other session — no error, just no fleet.
+
+```bash
+git checkout claude/subagents-parallel-spawn-ct4c6m   # or master, once #5 is merged
+npm ci                                                 # the gate needs node_modules
+```
+
+**2 · Launch from the repository root**, so `CLAUDE.md` and `.claude/` are in scope.
+Run the orchestrator as a **normal session** — do *not* use `claude --agent <name>`,
+which replaces the main system prompt with that one agent and gives you a single worker
+instead of an orchestrator.
+
+**3 · Verify the ten are visible** before spawning anything. Type `@agent-` and the
+typeahead should list all ten. (`/agents` behaviour varies by version — as of v2.1.198
+it just points you back at the directory.)
+
+**4 · Give the orchestrator a wave, not a task.** Paste something shaped like this:
+
+```
+Read .claude/fleet/FLEET.md and .claude/fleet/TASK_BOARD.md.
+
+You are the orchestrator, not a worker — write no code yourself.
+
+Run wave 1: spawn map-surface, pwa-screens, defect-rules and spec-transcriber
+ALL IN A SINGLE MESSAGE so they run in parallel. Give each one its task ids
+from the board, the spec sections it needs, and its definition of done.
+
+When all four return, spawn fleet-integrator alone. Then commit the wave and
+update the board.
+```
+
+**"All in a single message" is the load-bearing phrase.** Parallelism comes from
+multiple `Agent` calls in one assistant turn; calls made in separate turns run
+sequentially and buy nothing but cost the same.
+
+To drive one agent by hand instead of a whole wave, `@agent-<name>` is the guaranteed
+form — `@agent-map-surface publish the BoundaryMap prop API`. Naming an agent in plain
+prose is a suggestion Claude may or may not take; the `@` mention is not.
+
+### Two things that will bite you on the first run
+
+**Permission prompts.** Four parallel agents each run `npm run typecheck && npm test`,
+and in default mode every one of those is a prompt — interleaved from four agents at
+once, which is genuinely hard to read. Either start with `--permission-mode acceptEdits`
+or allowlist the handful of commands first; `/fewer-permission-prompts` does the latter
+from your own transcripts.
+
+**Rule 1 (no git writes by subagents) is written, not enforced.** Every agent file says
+it and no agent has a reason to disobey, but nothing in the harness stops one. If you
+want it enforced rather than instructed, a `Bash(git commit:*)`-style deny rule in
+`.claude/settings.json` applies to the whole session — **including the orchestrator,
+which needs to commit** — so it is not a free win. Per-agent `hooks:` frontmatter is the
+precise mechanism; verify its syntax against the current docs before relying on it.
+
+---
+
 ## 1. The roster
 
 Ten agents. Three tiers, and the tier is a claim about **what kind of wrongness the

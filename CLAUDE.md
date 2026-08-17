@@ -10,6 +10,11 @@
 subagents defined in `.claude/agents/`, spanning Opus, Sonnet and Haiku. Ten agents,
 write-disjoint path ownership, waves with an integration gate between them.
 
+Starting a session for the first time? `FLEET.md`'s **"Starting a session — the human
+side"** is the four-step version: be on a branch that has `.claude/`, `npm ci`, launch
+from the repo root as a normal session, and give the orchestrator a *wave* with the
+words "all in a single message" in it.
+
 | File | What it is |
 |---|---|
 | **`.claude/fleet/FLEET.md`** | **The coordination protocol.** Roster, which model and why, how to spawn a wave, the six rules, what the orchestrator does |
