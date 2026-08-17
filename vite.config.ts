@@ -15,7 +15,15 @@ export default defineConfig({
       workbox: {
         // Media bytes and PMTiles route packs are managed by the app's own
         // OPFS storage, not the service worker precache -- see B1.
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+        //
+        // `wasm` is here because the wa-sqlite binary (~1.1 MB) is what opens the
+        // device database. Without it precached, a device that installs the PWA and
+        // then has the browser evict the wasm from its ordinary HTTP cache cannot
+        // open its database offline -- which negates B1's core promise that capture
+        // never blocks on the network, and costs a sampling day in a build where a
+        // defect found in October waits a year. `maximumFileSizeToCacheInBytes` is
+        // already 5 MB, so the extension list was the only obstacle.
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,wasm}'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
       manifest: {

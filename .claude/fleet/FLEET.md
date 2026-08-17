@@ -36,11 +36,11 @@ task admits**, not about how hard it is.
 | **`schema-steward`** | opus | A wire type, device migration, or Snowflake name must change | `src/shared/{contract,db,snowflake,geo}/**`, `*.sql`, `tools/deploy-ddl.ts` |
 | **`sync-spine`** | opus | Retry, idempotency, ordering, RAW persistence, media tickets, derivation | `src/sync/**`, `src/server/{sync,derive,media,storage}/**`, `netlify/functions/{sync,derive}-*`, `tests/acceptance/**` |
 | **`capture-integrity`** | opus | GPS fix semantics, EXIF, `capture_source`, anything an auditor reads in 2029 | `src/app/capture/**` |
-| **`pwa-screens`** | sonnet | Shell, service worker, routing, or any of the six sampler screens | `src/app/{App.tsx,shell,styles}/**`, `src/app/screens/**` *except* `skip/` and `storage/`, `src/main.tsx`, `index.html` |
+| **`pwa-screens`** | sonnet | Shell, service worker, routing, or any of the six sampler screens | `src/app/{App.tsx,shell,styles}/**`, `src/app/screens/**` *except* `skip/` and `storage/`, `src/main.tsx`, `index.html`, `public/**` |
 | **`map-surface`** | sonnet | Anything MapLibre, PMTiles, or `<BoundaryMap>` | `src/shared/map/**`, `tools/pmtiles/**` |
 | **`server-endpoints`** | sonnet | A route in `netlify.toml` has no function file yet | `src/server/{assignments,nightly,dev}/**`, `src/analyst/**`, `netlify/functions/{assignments,nightly,analyst}-*` |
 | **`ingest-lane`** | haiku | Parsing, coordinates, column mapping, preview, ingest tutorial | `src/ingest/**`, `netlify/functions/ingest-*` |
-| **`defect-rules`** | haiku | A code in `PENDING_A8_RULES` needs writing | `src/server/defects/rules/**` |
+| **`defect-rules`** | haiku | A code in `PENDING_A8_RULES` needs writing | `src/server/defects/rules/**`, `tests/unit/defect-rules*.test.ts` |
 | **`spec-transcriber`** | haiku | Code sets, fixtures, design primitives, ERD — the decision is already written down | `src/shared/codes/**`, `src/app/components/**`, `src/app/screens/{skip,storage}/**`, `fixtures/**`, `sampling_erd.mermaid` |
 | **`fleet-integrator`** | opus | A wave finished and the next one has not started | nothing under `src/` |
 
