@@ -12,7 +12,7 @@
  */
 
 import { runDerivationPipeline } from '../../src/server/derive/pipeline.js';
-import { snowflake } from '../../src/server/env.js';
+import { sqlClient } from '../../src/server/env.js';
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method !== 'POST') return new Response('method not allowed', { status: 405 });
@@ -26,7 +26,10 @@ export default async function handler(request: Request): Promise<Response> {
   if (!body.sync_batch_id) return new Response('sync_batch_id is required', { status: 400 });
 
   try {
-    const result = await runDerivationPipeline(body.sync_batch_id, { snowflake: snowflake() });
+    const result = await runDerivationPipeline(body.sync_batch_id, { snowflake: sqlClient() });
+    // `steps_skipped` and `rules_not_run` are the interesting half of this on a
+    // backend without geospatial. They are also written to
+    // `CURATED.DERIVATION_RUN`, because a log line is not a record.
     console.log('derivation complete', result);
   } catch (err) {
     // Loud, and left for the nightly sweep to retry. Swallowing this would

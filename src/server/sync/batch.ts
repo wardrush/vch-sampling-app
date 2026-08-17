@@ -7,7 +7,7 @@
  *      Bad records land in RAW regardless and become a defect, not a data loss.
  *      This step is the one someone who has not yet needed it will cut, and it
  *      is the reason `CURATED` can be rebuilt (v02 §11.5).
- *   2. Parse and MERGE on the client keys — per entity type, never per record.
+ *   2. Parse and upsert on the client keys — per entity type, never per record.
  *   3. Answer per record. A whole batch is never rejected for one bad one.
  *   4. Hand the derivation pipeline a `sync_batch_id`, never data.
  *
@@ -15,6 +15,14 @@
  * the acknowledgement it returned the first time (v02 §11.4). Media tickets are
  * re-issued rather than replayed, because a ticket expires and a stale URL
  * would be a worse kind of "identical".
+ *
+ * **Backend-independent by construction.** Everything here goes through
+ * `SqlClient`, and the two dialects' SQL comes from one mapping in `./merge.ts`
+ * plus the fragments in `./dialect.ts`. The content hash in particular is taken
+ * over the received bytes and never over anything read back out of a database —
+ * `jsonb` normalises key order and drops duplicate keys, and so does Snowflake's
+ * `VARIANT`, so a hash over a round-tripped payload would address something that
+ * never arrived.
  */
 
 import { createHash } from 'node:crypto';
@@ -24,12 +32,20 @@ import type {
   SyncRejection,
 } from '../../shared/contract/sync.js';
 import { OUTBOX_PRIORITY } from '../../shared/contract/sync.js';
+import type { SyncEntityType } from '../../shared/contract/common.js';
 import type { MediaMetaPayload } from '../../shared/contract/entities.js';
-import type { SnowflakeClient } from '../../shared/snowflake/client.js';
-import { asObjects } from '../../shared/snowflake/client.js';
+import type { SqlClient, SqlDialect } from '../../shared/db/port.js';
+import { asObjects } from '../../shared/db/port.js';
 import { type BlobStore, rawPayloadKey } from '../storage/blobs.js';
 import type { MediaTicketIssuer } from '../media/tickets.js';
-import { curatedMergeSql } from './merge.js';
+import {
+  curatedMergeSql,
+  curatedWriteForPayload,
+  isMergeableEntity,
+  keyPathFor,
+  type MergeableEntityType,
+} from './merge.js';
+import { syntaxFor } from './dialect.js';
 import { partitionBatch } from './validate.js';
 
 export interface DerivationTrigger {
@@ -38,7 +54,11 @@ export interface DerivationTrigger {
 }
 
 export interface SyncBatchDeps {
-  snowflake: SnowflakeClient;
+  /**
+   * The warehouse or the Netlify database, behind the port. The field keeps its
+   * name so every existing caller and test reads unchanged.
+   */
+  snowflake: SqlClient;
   blobs: BlobStore;
   tickets: MediaTicketIssuer;
   derivation: DerivationTrigger;
@@ -61,6 +81,7 @@ export async function handleSyncBatch(
   const now = deps.now ?? Date.now;
   const receivedTs = new Date(now()).toISOString();
   const payloadHash = createHash('sha256').update(rawBody).digest('hex');
+  const dialect = deps.snowflake.dialect;
 
   // ---- 0. Replay -----------------------------------------------------------
   const priorAck = await deps.blobs.get(ackKey(request.sync_batch_id));
@@ -72,7 +93,7 @@ export async function handleSyncBatch(
         media_upload_tickets: await deps.tickets.issue(mediaPayloads(request)),
       };
     }
-    // Same idempotency key, different bytes. The MERGE is idempotent on the
+    // Same idempotency key, different bytes. The upsert is idempotent on the
     // client keys either way, so process it — but do not pretend it was a
     // replay.
   }
@@ -84,26 +105,37 @@ export async function handleSyncBatch(
   });
   await persistRaw(deps.snowflake, request, rawBody, payloadHash, receivedTs);
 
-  // ---- 2. Parse and MERGE --------------------------------------------------
+  // ---- 2. Parse and upsert -------------------------------------------------
   const { byEntity, sideChannel, rejected } = partitionBatch(request);
   const accepted: string[] = sideChannel.map((r) => r.entity_id);
 
   // Contract §5 order: parents before children, so a batch carrying both lands
-  // referentially sound even though the warehouse does not enforce it.
+  // referentially sound even though neither backend enforces referential
+  // integrity — deliberately, so a child that arrives first becomes a defect
+  // rather than a rejected sample.
   const ordered = [...byEntity.entries()].sort(
     (a, b) => (OUTBOX_PRIORITY[a[0]] ?? 100) - (OUTBOX_PRIORITY[b[0]] ?? 100),
   );
 
   for (const [entityType, records] of ordered) {
-    const payloads = records.map((r) => r.payload);
+    if (!isMergeableEntity(entityType)) continue;
+    // Last occurrence of a client key wins, matching the outbox's own
+    // `ON CONFLICT DO UPDATE` on `(entity_type, entity_id, operation)`. A
+    // conforming client cannot send the same key twice in one batch; a
+    // non-conforming one must not be able to poison a batch that then retries
+    // forever.
+    const payloads = dedupeByKey(records.map((r) => r.payload), entityType);
+    const write = curatedWriteForPayload(
+      entityType,
+      JSON.stringify(payloads),
+      request.sync_batch_id,
+      dialect,
+    );
     try {
-      await deps.snowflake.execute(
-        curatedMergeSql(entityType as never, 'PARSE_JSON(?)', '?'),
-        { binds: [JSON.stringify(payloads), request.sync_batch_id] },
-      );
+      await deps.snowflake.execute(write.sql, { binds: write.binds });
       accepted.push(...records.map((r) => r.entity_id));
     } catch (err) {
-      // Degrade, don't fail. The warehouse being unavailable is retryable by
+      // Degrade, don't fail. The database being unavailable is retryable by
       // definition, and the records are already durable in RAW — this is a
       // "come back in five minutes", not a lost sample.
       const detail = err instanceof Error ? err.message : String(err);
@@ -158,16 +190,62 @@ function mediaPayloads(request: SyncBatchRequest): MediaMetaPayload[] {
     .filter((p) => typeof p?.content_hash === 'string' && typeof p?.media_id === 'string');
 }
 
+/** Last occurrence per client key, order otherwise preserved. */
+function dedupeByKey(payloads: unknown[], entityType: MergeableEntityType): unknown[] {
+  const keyPath = keyPathFor(entityType);
+  const byKey = new Map<string, unknown>();
+  const unkeyed: unknown[] = [];
+  for (const payload of payloads) {
+    const key = (payload as Record<string, unknown> | null)?.[keyPath];
+    if (typeof key === 'string') byKey.set(key, payload);
+    else unkeyed.push(payload);
+  }
+  return [...byKey.values(), ...unkeyed];
+}
+
 async function persistRaw(
-  snowflake: SnowflakeClient,
+  db: SqlClient,
   request: SyncBatchRequest,
   rawBody: Uint8Array,
   payloadHash: string,
   receivedTs: string,
 ): Promise<void> {
-  // Idempotent on the hash: identical bytes are the same artefact, and a
-  // client retrying a timed-out batch must not create a second RAW row.
-  await snowflake.execute(
+  // Valid UTF-8 decodes and re-encodes to the same bytes, which is the
+  // assumption both backends' RAW rows already make. Netlify Blobs holds the
+  // authoritative bytes either way (step 1 above).
+  const payloadText = new TextDecoder().decode(rawBody);
+
+  if (db.dialect === 'postgres') {
+    // PAYLOAD_TEXT is the hash anchor: verbatim, never updated. PAYLOAD is the
+    // queryable jsonb projection of the *same bind, in the same statement* — so
+    // `sha256(PAYLOAD_TEXT) = RAW_PAYLOAD_HASH` stays a checkable statement
+    // rather than an article of faith. Idempotent on the hash: identical bytes
+    // are the same artefact, and a client retrying a timed-out batch must not
+    // create a second RAW row.
+    await db.execute(
+      `INSERT INTO RAW.SYNC_PAYLOAD
+         (RAW_PAYLOAD_HASH, DEVICE_ID, SYNC_BATCH_ID, PAYLOAD_TEXT, PAYLOAD, PAYLOAD_BYTES,
+          SCHEMA_VERSION, APP_VERSION, RECEIVED_TS)
+       VALUES (?, ?, ?, ?, (?)::jsonb, ?, ?, ?, ?)
+       ON CONFLICT (RAW_PAYLOAD_HASH) DO NOTHING`,
+      {
+        binds: [
+          payloadHash,
+          request.device_id,
+          request.sync_batch_id,
+          payloadText,
+          payloadText,
+          rawBody.byteLength,
+          request.schema_version,
+          request.app_version,
+          receivedTs,
+        ],
+      },
+    );
+    return;
+  }
+
+  await db.execute(
     `INSERT INTO RAW.SYNC_PAYLOAD
        (RAW_PAYLOAD_HASH, DEVICE_ID, SYNC_BATCH_ID, PAYLOAD, PAYLOAD_BYTES,
         SCHEMA_VERSION, APP_VERSION, RECEIVED_TS)
@@ -180,7 +258,7 @@ async function persistRaw(
         payloadHash,
         request.device_id,
         request.sync_batch_id,
-        new TextDecoder().decode(rawBody),
+        payloadText,
         rawBody.byteLength,
         request.schema_version,
         request.app_version,
@@ -192,16 +270,43 @@ async function persistRaw(
 }
 
 async function recordBatch(
-  snowflake: SnowflakeClient,
+  db: SqlClient,
   request: SyncBatchRequest,
   payloadHash: string,
   acceptedCount: number,
   rejectedCount: number,
   receivedTs: string,
 ): Promise<void> {
-  await snowflake.executeMulti(
-    [
-      `MERGE INTO CURATED.SYNC_BATCH t
+  const syntax = syntaxFor(db);
+  // Ten binds for the batch row, two for the device row, in this order on both
+  // backends — `executeMulti` takes one flat positional array and the Postgres
+  // adapter splits it by counting placeholders.
+  const binds = [
+    request.sync_batch_id,
+    request.device_id,
+    request.client_sent_ts,
+    receivedTs,
+    request.records.length,
+    acceptedCount,
+    rejectedCount,
+    payloadHash,
+    request.app_version,
+    request.schema_version,
+    receivedTs,
+    request.device_id,
+  ];
+
+  const batchRow =
+    syntax.dialect === 'postgres'
+      ? `INSERT INTO CURATED.SYNC_BATCH AS t
+           (SYNC_BATCH_ID, DEVICE_ID, CLIENT_SENT_TS, SERVER_RECEIVED_TS, RECORD_COUNT,
+            ACCEPTED_COUNT, REJECTED_COUNT, RAW_PAYLOAD_HASH, APP_VERSION, SCHEMA_VERSION)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (SYNC_BATCH_ID) DO UPDATE SET
+            ACCEPTED_COUNT = EXCLUDED.ACCEPTED_COUNT,
+            REJECTED_COUNT = EXCLUDED.REJECTED_COUNT,
+            SERVER_RECEIVED_TS = EXCLUDED.SERVER_RECEIVED_TS`
+      : `MERGE INTO CURATED.SYNC_BATCH t
        USING (SELECT ? AS SYNC_BATCH_ID, ? AS DEVICE_ID, ? AS CLIENT_SENT_TS,
                      ? AS SERVER_RECEIVED_TS, ? AS RECORD_COUNT, ? AS ACCEPTED_COUNT,
                      ? AS REJECTED_COUNT, ? AS RAW_PAYLOAD_HASH, ? AS APP_VERSION,
@@ -217,61 +322,83 @@ async function recordBatch(
                      APP_VERSION, SCHEMA_VERSION)
              VALUES (s.SYNC_BATCH_ID, s.DEVICE_ID, s.CLIENT_SENT_TS, s.SERVER_RECEIVED_TS,
                      s.RECORD_COUNT, s.ACCEPTED_COUNT, s.REJECTED_COUNT, s.RAW_PAYLOAD_HASH,
-                     s.APP_VERSION, s.SCHEMA_VERSION)`,
-      `UPDATE CURATED.DEVICE SET LAST_SEEN_TS = ? WHERE DEVICE_ID = ?`,
-    ],
-    {
-      binds: [
-        request.sync_batch_id,
-        request.device_id,
-        request.client_sent_ts,
-        receivedTs,
-        request.records.length,
-        acceptedCount,
-        rejectedCount,
-        payloadHash,
-        request.app_version,
-        request.schema_version,
-        receivedTs,
-        request.device_id,
-      ],
-    },
+                     s.APP_VERSION, s.SCHEMA_VERSION)`;
+
+  await db.executeMulti(
+    [batchRow, `UPDATE CURATED.DEVICE SET LAST_SEEN_TS = ? WHERE DEVICE_ID = ?`],
+    { binds },
   );
 }
 
 /**
- * Re-runs the parse over `RAW.SYNC_PAYLOAD` for one batch.
+ * The rebuild path's source expression: every record of one entity type inside
+ * **one** RAW payload.
+ *
+ * One RAW row at a time, rather than one aggregate over all of them, and that is
+ * a correctness point rather than a style one. `ARRAY_AGG` / `jsonb_agg` over
+ * many payloads has no defined order, so a sample corrected in a later batch
+ * could be rebuilt from the *earlier* payload — a rebuild that is not
+ * deterministic does not satisfy v02 §11 criterion 5 whatever it produces.
+ * Replaying payloads in `RECEIVED_TS` order makes last-writer-wins mean the same
+ * thing on the rebuild path as it does on the live path.
+ *
+ * Contains exactly one placeholder, for the RAW payload hash.
+ */
+export function rawRebuildSourceSql(entityType: MergeableEntityType, dialect: SqlDialect): string {
+  const syntax = syntaxFor(dialect);
+  const records = syntax.jsonSubtree('p.PAYLOAD', 'records');
+  return `(
+      SELECT ${syntax.jsonArrayAgg(syntax.jsonSubtree('rec.value', 'payload'))}
+        FROM RAW.SYNC_PAYLOAD p,
+             ${syntax.jsonArrayRows(records, 'rec')}
+       WHERE ${syntax.jsonScalar('rec.value', 'entity_type', 'text')} = '${entityType}'
+         AND p.RAW_PAYLOAD_HASH = ?
+    )`;
+}
+
+/**
+ * Re-runs the parse over `RAW.SYNC_PAYLOAD`.
  *
  * v02 §11 criterion 5 in executable form. It uses `curatedMergeSql` with a
  * different source expression and nothing else changes — which is the only
  * honest way to claim the curated layer is rebuildable.
+ *
+ * Each payload is replayed in arrival order, and each row is re-stamped with the
+ * `SYNC_BATCH_ID` it originally arrived under, so the derivation pipeline — which
+ * is keyed on that column — can be re-run afterwards exactly as it was the first
+ * time.
  */
 export async function rebuildCuratedFromRaw(
-  snowflake: SnowflakeClient,
+  db: SqlClient,
   entityTypes: readonly string[],
   syncBatchId?: string,
 ): Promise<void> {
-  for (const entityType of entityTypes) {
-    const source = `(
-      SELECT ARRAY_AGG(rec.value:payload)
-        FROM RAW.SYNC_PAYLOAD p,
-             TABLE(FLATTEN(input => p.PAYLOAD:records)) rec
-       WHERE rec.value:entity_type::VARCHAR = '${entityType}'
-         ${syncBatchId ? 'AND p.SYNC_BATCH_ID = ?' : ''}
-    )`;
-    await snowflake.execute(
-      curatedMergeSql(entityType as never, source, syncBatchId ? '?' : 'NULL'),
-      { binds: syncBatchId ? [syncBatchId, syncBatchId] : [] },
-    );
+  const mergeable = entityTypes
+    .filter((t): t is MergeableEntityType => isMergeableEntity(t as SyncEntityType))
+    .sort((a, b) => (OUTBOX_PRIORITY[a] ?? 100) - (OUTBOX_PRIORITY[b] ?? 100));
+
+  for (const payload of await listBatchRawHashes(db, syncBatchId)) {
+    for (const entityType of mergeable) {
+      await db.execute(
+        curatedMergeSql(entityType, rawRebuildSourceSql(entityType, db.dialect), '?', db.dialect),
+        // Batch id first, then the payload hash inside the source expression —
+        // the order the SQL mentions them. See `./merge.ts`.
+        { binds: [payload.sync_batch_id, payload.raw_payload_hash] },
+      );
+    }
   }
 }
 
 /** Convenience for the acceptance test and the nightly rebuild job. */
 export async function listBatchRawHashes(
-  snowflake: SnowflakeClient,
+  db: SqlClient,
+  syncBatchId?: string,
 ): Promise<Array<{ sync_batch_id: string; raw_payload_hash: string }>> {
-  const result = await snowflake.execute(
-    `SELECT SYNC_BATCH_ID, RAW_PAYLOAD_HASH FROM RAW.SYNC_PAYLOAD ORDER BY RECEIVED_TS`,
+  const result = await db.execute(
+    `SELECT SYNC_BATCH_ID, RAW_PAYLOAD_HASH FROM RAW.SYNC_PAYLOAD
+      ${syncBatchId ? 'WHERE SYNC_BATCH_ID = ?' : ''}
+      ORDER BY RECEIVED_TS`,
+    { binds: syncBatchId ? [syncBatchId] : [] },
   );
   return asObjects<{ sync_batch_id: string; raw_payload_hash: string }>(result);
 }

@@ -9,7 +9,8 @@
 
 import type { MediaCommitRequest } from '../../src/shared/contract/media.js';
 import { commitMedia } from '../../src/server/media/tickets.js';
-import { blobStore, snowflake } from '../../src/server/env.js';
+import { syntaxFor } from '../../src/server/sync/dialect.js';
+import { blobStore, sqlClient } from '../../src/server/env.js';
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method !== 'POST') return new Response('method not allowed', { status: 405 });
@@ -24,19 +25,23 @@ export default async function handler(request: Request): Promise<Response> {
     return json({ error: 'media_id and content_hash are required' }, 400);
   }
 
-  const sf = snowflake();
+  const sf = sqlClient();
+  const syntax = syntaxFor(sf);
   const result = await commitMedia(body, {
     blobs: await blobStore(),
     async markUploaded(mediaId, hash, key, bytes) {
+      // `RAW.MEDIA_UPLOAD_LOG` is append-only on both backends: a re-upload
+      // appends a second row rather than upserting, which is the record of what
+      // actually happened to the bytes.
       await sf.executeMulti(
         [
           `UPDATE CURATED.MEDIA
-              SET UPLOAD_STATE = 'uploaded', UPLOADED_TS = CURRENT_TIMESTAMP(),
-                  OBJECT_KEY = ?, BYTES = ?, LAST_UPDATED_TS = CURRENT_TIMESTAMP()
+              SET UPLOAD_STATE = 'uploaded', UPLOADED_TS = ${syntax.now},
+                  OBJECT_KEY = ?, BYTES = ?, LAST_UPDATED_TS = ${syntax.now}
             WHERE MEDIA_ID = ?`,
           `INSERT INTO RAW.MEDIA_UPLOAD_LOG
              (CONTENT_HASH, MEDIA_ID, OBJECT_KEY, BYTES, UPLOAD_COMPLETED_TS, UPLOAD_STATE)
-           SELECT ?, ?, ?, ?, CURRENT_TIMESTAMP(), 'uploaded'`,
+           SELECT ?, ?, ?, ?, ${syntax.now}, 'uploaded'`,
         ],
         { binds: [key, bytes, mediaId, hash, mediaId, key, bytes] },
       );

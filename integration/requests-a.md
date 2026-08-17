@@ -78,3 +78,87 @@ one-line changes needed in paths I do not own. Both are recorded in
    `src/server/env.ts` throws a named error on any backend other than Snowflake
    rather than surfacing as "missing SNOWFLAKE_ACCOUNT" three layers down.
    `src/shared/auth/**` is unowned in FLEET.md §1 — it needs an owner assigned.
+
+---
+
+**2026-08-17 · sync-spine (N2 — `src/server/{sync,derive}/**` on the SQL port) ·**
+Four requests, in the order they block the MVP write path. Full reasoning in
+`.claude/fleet/reports/sync-spine-netlify-db.md`.
+
+1. **`src/server/defects/harness.ts` — widen to `SqlClient` and port its one
+   write.** BLOCKING for defect detection on the Netlify database. `A7`'s
+   `writeFindings()` still emits `PARSE_JSON(?)` + `TABLE(FLATTEN(...))` +
+   `MERGE INTO`, and `DefectHarnessDeps.snowflake` is typed `SnowflakeClient`, so
+   step 7 of the derivation pipeline **cannot run on Postgres**. The pipeline now
+   checks `capabilities.variantJson && capabilities.mergeInto` before calling it
+   and, when they are false, records `defect_rules` in `DERIVATION_RUN.STEPS_SKIPPED`
+   and **also skips step 8** — a review state written from a screening that never
+   happened is the exact failure the geo-assurance work exists to prevent. So on
+   Postgres today: no defects are raised and no sample reaches a clean state; rows
+   stay `captured` and read as `awaiting_derivation` in
+   `CURATED.V_SAMPLE_GEO_ASSURANCE`. Loud, not silent — but it is a hole.
+
+   The port is mechanical and everything it needs already exists:
+
+   ```ts
+   // 1. the type
+   import type { SqlClient } from '../../shared/db/port.js';
+   export interface DefectHarnessDeps { snowflake: SqlClient; /* … */ }
+   // loadContext()'s four SELECTs are plain ANSI and need no change at all.
+
+   // 2. the one write, dialect-aware — same shape as raiseDefectFromQuery()
+   //    in src/server/derive/pipeline.ts, which is already ported and can be
+   //    copied almost verbatim:
+   import { syntaxFor } from '../sync/dialect.js';
+   const syntax = syntaxFor(sf);
+   //  - PARSE_JSON(?)                  -> syntax.parseJson('?')
+   //  - TABLE(FLATTEN(input => X)) v   -> syntax.jsonArrayRows(X, 'v')   (v.value both sides)
+   //  - v.value:defect_id::VARCHAR     -> syntax.jsonScalar('v.value', 'defect_id', 'text')
+   //  - CURRENT_TIMESTAMP()            -> syntax.now
+   //  - MERGE … ON t.DEFECT_ID         -> INSERT … ON CONFLICT (DEFECT_ID) DO UPDATE SET …
+   //                                        WHERE t.RESOLUTION_STATE = 'open'
+   ```
+
+   `CURATED.SAMPLE_DEFECT.DEFECT_ID` is the primary key in both DDL files, and
+   `MD5()` renders identical lowercase hex on both backends, so the deterministic
+   defect id — and therefore "exactly one defect row" — survives the rewrite
+   unchanged. When it lands, delete `harnessRunsOn()` in
+   `src/server/derive/pipeline.ts`; the `runRules` seam next to it is how the
+   tests already exercise step 8 on Postgres.
+
+   **Owner:** `src/server/defects/harness.ts` is unowned in FLEET.md §1
+   (`defect-rules` owns `rules/**` only). It is the third unowned path this
+   Netlify work has hit, after `src/server/env.ts` and `src/shared/auth/**`.
+
+2. **`CURATED.SAMPLE_DEFECT` has no `SYNC_BATCH_ID` column — in *either* DDL
+   file.** `curatedMergeSql('local_defect', …)` stamped one on every row, which
+   is an invalid-identifier error on both backends; device-raised defects have
+   therefore never been writable. Stopped rather than adding a column: the
+   mapping now carries `batchStamped: false` for `local_defect` and the write
+   omits it. **If batch provenance on device-raised defects is wanted, add
+   `SYNC_BATCH_ID varchar(64)` to `CURATED.SAMPLE_DEFECT` in both
+   `snowflake_sampling_v01.sql` (or a v03 addendum) and
+   `postgres_sampling_v01.sql`, and delete the flag** — one line each. The
+   server-rule writers never set it either, so "no batch stamp on a defect" is a
+   defensible design; it just was not what the parser did.
+   `tests/acceptance/06-dual-backend-parity.test.ts` now checks every column the
+   parser writes against both DDL files, which is what found this.
+
+3. **`CURATED.DERIVATION_RUN` has no Snowflake counterpart.** The pipeline
+   records one row per run per batch — backend, geo capability, steps completed,
+   **steps skipped**, and the defect codes whose input was never computed. On
+   Snowflake the table does not exist, so `DERIVATION_RUN_BACKENDS` in
+   `src/server/derive/pipeline.ts` currently gates the insert to Postgres.
+   Snowflake's run history is silently absent as a result. A `CREATE TABLE`
+   matching `postgres_sampling_v01.sql` §6 (plus `SAMPLE_POINT.GEO_DERIVATION_STATE`
+   / `GEO_DERIVED_TS`, which would make `V_SAMPLE_GEO_ASSURANCE` portable) makes
+   the gate a one-line deletion. Not blocking — Snowflake runs every geographic
+   step, so it has nothing to disclose — but the run history is worth having on
+   the backend that ends up holding the season.
+
+4. **`tests/support/fake-snowflake.ts` now has two port-typed wrappers around
+   it** — `tests/acceptance/support/fake-sql-client.ts` (mine, a subclass) and
+   `asPostgresClient()` in `tests/unit/ingest-postgres-port.test.ts`
+   (`ingest-lane`'s). Both exist because the shared fake is used by tests neither
+   lane owns. Worth collapsing into one helper in `tests/support/` once the wave
+   closes; no behaviour depends on which is used.

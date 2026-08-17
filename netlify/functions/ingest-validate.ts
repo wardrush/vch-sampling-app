@@ -5,11 +5,17 @@
  * the session.
  */
 import type { IngestValidateRequest } from '../../src/shared/contract/ingest.js';
-import { validateRows, liveDeps, loadExistingLabels, type ValidateBoundary } from '../../src/ingest/validate/index.js';
+import {
+  validateRows,
+  liveDeps,
+  loadExistingLabels,
+  type ValidateBoundary,
+  type ValidateDeps,
+} from '../../src/ingest/validate/index.js';
 import { findOperationCandidates as findOperationCandidatesLive, findContactCandidates as findContactCandidatesLive } from '../../src/ingest/validate/match.js';
 import { requireSession } from '../../src/shared/auth/session.js';
-import { sessionSecret, snowflake } from '../../src/server/env.js';
-import { asObjects } from '../../src/shared/snowflake/client.js';
+import { sessionSecret, sqlBackend, sqlClient, snowflake } from '../../src/server/env.js';
+import { asObjects } from '../../src/shared/db/port.js';
 import { isMockMode } from '../../src/server/dev/mock-mode.js';
 import { loadBundleFixture } from '../../src/server/dev/fixtures.js';
 import { bboxOf } from '../../src/shared/geo/point-in-polygon.js';
@@ -70,7 +76,34 @@ function mockDeps() {
   };
 }
 
-async function liveDepsFor(body: IngestValidateRequest) {
+async function liveDepsFor(body: IngestValidateRequest): Promise<ValidateDeps> {
+  // Boundary/geometry matching is out of scope for the MVP on a backend with
+  // no geospatial capability (a direct instruction, not merely a missing
+  // BOUNDARY_CACHE loader) -- gated on the port's own capability flag so this
+  // returns automatically once a geospatial backend is selected again, with
+  // no separate flag to remember to flip. See `src/ingest/validate/index.ts`.
+  //
+  // `CURATED.OPERATION` / `CURATED.PERSON` are two of the three known
+  // schema-name gaps (see `integration/requests-a.md`) -- no table exists for
+  // either on Postgres, and guessing one is exactly what is not to be done
+  // here. Candidate lookup returns no candidates on this backend rather than
+  // querying a table that does not exist; every operation/contact string
+  // still lands as text, still suggests nothing invented, and still commits
+  // (D16).
+  if (sqlBackend() !== 'snowflake') {
+    const client = sqlClient();
+    const statedBoundaryIds = [
+      ...new Set(body.rows.map((r) => r.boundary_id_stated).filter((x): x is string => !!x)),
+    ];
+    return {
+      boundaries: [],
+      existingLabelsByBoundary: await loadExistingLabels(client, body.period_code, statedBoundaryIds),
+      findOperationCandidates: async () => [],
+      findContactCandidates: async () => [],
+      capabilities: client.capabilities,
+    };
+  }
+
   const sf = snowflake();
   const boundaryRows = asObjects<{
     boundary_id: string;
@@ -103,6 +136,7 @@ async function liveDepsFor(body: IngestValidateRequest) {
     ...liveDeps(sf, boundaries, existingLabelsByBoundary),
     findOperationCandidates: (text: string) => findOperationCandidatesLive(sf, text),
     findContactCandidates: (text: string) => findContactCandidatesLive(sf, text),
+    capabilities: sf.capabilities,
   };
 }
 

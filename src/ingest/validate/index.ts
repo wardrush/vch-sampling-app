@@ -17,8 +17,8 @@ import type {
   ParsedPlanRow,
   ValidatedPlanRow,
 } from '../../shared/contract/ingest.js';
-import type { SnowflakeClient } from '../../shared/snowflake/client.js';
-import { asObjects } from '../../shared/snowflake/client.js';
+import type { SqlClient, SqlCapabilities } from '../../shared/db/port.js';
+import { asObjects, SNOWFLAKE_CAPABILITIES } from '../../shared/db/port.js';
 import { pointInPolygon } from '../../shared/geo/point-in-polygon.js';
 import { haversineMetres } from '../../shared/geo/distance.js';
 import {
@@ -28,6 +28,7 @@ import {
   DEFAULT_MATCH_CONFIG,
   type MatchConfig,
 } from './match.js';
+import type { SnowflakeClient } from '../../shared/snowflake/client.js';
 
 export interface ValidateBoundary {
   boundary_id: string;
@@ -35,6 +36,27 @@ export interface ValidateBoundary {
   centroid_lat: number;
   centroid_lon: number;
 }
+
+/**
+ * Two codes that make a skip *visible* rather than a row silently reading
+ * "ready" for a reason nobody can see. Neither is blocking or review-level —
+ * geometry matching is out of scope for the MVP by direct instruction, and an
+ * out-of-scope feature must not gate a commit. They are advisory in the same
+ * sense `UNMAPPED_COLUMNS_PRESENT` already is: pushed to `validation_codes`
+ * unconditionally, and never read by the blocked/review/ready classifier
+ * below. A tester (or `PLAN_IMPORT_ROW.validation_codes`, which is written for
+ * every row regardless of status) can always tell a skipped check from a
+ * checked-and-clean one.
+ *
+ * This mirrors `GEO_DERIVATION_STATE` / `clean_geo_unverified` in
+ * `src/shared/db/geo-assurance.ts` without touching that file or
+ * `src/shared/contract/ingest.ts` — both are schema-steward's. `validation_codes`
+ * is already a plain `string[]` in the contract, so no type changes anywhere.
+ */
+export const BOUNDARY_CHECK_SKIPPED_NO_GEOSPATIAL = 'BOUNDARY_CHECK_SKIPPED_NO_GEOSPATIAL';
+export const BOUNDARY_CHECK_SKIPPED_EMPTY_CACHE = 'BOUNDARY_CHECK_SKIPPED_EMPTY_CACHE';
+/** Review-level: no stated boundary either, so this row truly cannot be placed. */
+export const BOUNDARY_UNRESOLVED_NO_GEOSPATIAL = 'BOUNDARY_UNRESOLVED_NO_GEOSPATIAL';
 
 export interface ValidateDeps {
   /** Active boundaries to test rows against. Real mode: from `V_BOUNDARY_ENTITY`. */
@@ -47,6 +69,21 @@ export interface ValidateDeps {
   /** Rows further than this from every assigned boundary are IMPLAUSIBLE_DISTANCE. */
   implausibleDistanceM?: number;
   now?: () => number;
+  /**
+   * The backend's capabilities. **Optional, defaulting to full (Snowflake)
+   * capability**, so every existing caller that does not pass this keeps
+   * today's behaviour byte-for-byte — see `tests/unit/sonnet-additions.test.ts`,
+   * which builds `ValidateDeps` without this field.
+   *
+   * `capabilities.geospatial === false` (the Postgres adapter) turns off
+   * boundary/geometry matching for this request entirely: no point-in-polygon,
+   * no boundary-mismatch check, no implausible-distance check. This is a
+   * direct instruction, not a side effect of missing SQL support — geometry
+   * matching is out of scope for the MVP until there is user feedback, and it
+   * must come back automatically the day `capabilities.geospatial` is `true`
+   * again, with no separate flag to remember to flip.
+   */
+  capabilities?: SqlCapabilities;
 }
 
 const DEFAULT_IMPLAUSIBLE_DISTANCE_M = 5_000;
@@ -58,12 +95,15 @@ export async function validateRows(
   const now = deps.now ?? Date.now;
   const config = deps.matchConfig ?? DEFAULT_MATCH_CONFIG;
   const implausibleM = deps.implausibleDistanceM ?? DEFAULT_IMPLAUSIBLE_DISTANCE_M;
+  // Defaulting to full capability preserves every existing caller's behaviour
+  // byte-for-byte when it does not pass `capabilities` at all.
+  const capabilities = deps.capabilities ?? SNOWFLAKE_CAPABILITIES;
 
   const seenInThisRequest = new Map<string, number>();
   const rows: ValidatedPlanRow[] = [];
 
   for (const row of request.rows) {
-    rows.push(await validateOne(row, deps, config, implausibleM, seenInThisRequest));
+    rows.push(await validateOne(row, deps, config, implausibleM, capabilities, seenInThisRequest));
   }
 
   const summary = {
@@ -81,6 +121,7 @@ async function validateOne(
   deps: ValidateDeps,
   config: MatchConfig,
   implausibleM: number,
+  capabilities: SqlCapabilities,
   seenInThisRequest: Map<string, number>,
 ): Promise<ValidatedPlanRow> {
   const codes: string[] = [];
@@ -108,24 +149,46 @@ async function validateOne(
   // Point-in-polygon against every active boundary (contract §6 step 4's
   // logic, run here so the analyst sees POINT_OUTSIDE_BOUNDARY before commit
   // rather than after — same code, same meaning, spec §5).
+  //
+  // **Skipped, not failed, on a backend with no geospatial capability** — a
+  // direct instruction (not a side effect of missing SQL support): geometry
+  // matching is out of scope for the MVP until there is user feedback. Gated
+  // on `capabilities.geospatial`, the existing port contract, so the
+  // Snowflake path is untouched and the feature returns automatically the
+  // day that flag flips back to `true` — no separate flag to remember.
+  //
+  // A capability-having backend whose boundary cache/entity view legitimately
+  // returns zero rows (not loaded yet) gets the same treatment: it is a
+  // different condition from "no geospatial capability" — the backend *could*
+  // check, it just has nothing to check against yet — so it is called out
+  // with a different code, but it is equally non-blocking.
   const point = { lat: row.lat, lon: row.lon };
   let resolvedBoundary: string | null = null;
-  for (const b of deps.boundaries) {
-    if (pointInPolygon(point, b.geometry)) {
-      resolvedBoundary = b.boundary_id;
-      break;
+  if (!capabilities.geospatial) {
+    resolvedBoundary = statedBoundary ?? null;
+    codes.push(BOUNDARY_CHECK_SKIPPED_NO_GEOSPATIAL);
+    if (!resolvedBoundary) codes.push(BOUNDARY_UNRESOLVED_NO_GEOSPATIAL);
+  } else if (deps.boundaries.length === 0) {
+    resolvedBoundary = statedBoundary ?? null;
+    codes.push(BOUNDARY_CHECK_SKIPPED_EMPTY_CACHE);
+    if (!resolvedBoundary) codes.push(BOUNDARY_UNRESOLVED_NO_GEOSPATIAL);
+  } else {
+    for (const b of deps.boundaries) {
+      if (pointInPolygon(point, b.geometry)) {
+        resolvedBoundary = b.boundary_id;
+        break;
+      }
     }
-  }
-  if (!resolvedBoundary) {
-    codes.push('POINT_OUTSIDE_BOUNDARY');
-  } else if (statedBoundary && resolvedBoundary !== statedBoundary) {
-    codes.push('BOUNDARY_MISMATCH');
-  }
+    if (!resolvedBoundary) {
+      codes.push('POINT_OUTSIDE_BOUNDARY');
+    } else if (statedBoundary && resolvedBoundary !== statedBoundary) {
+      codes.push('BOUNDARY_MISMATCH');
+    }
 
-  // Implausible distance -- catches the wrong-file upload. Nearest assigned
-  // boundary centroid; if nothing is within range, this is likely not this
-  // period's ground at all.
-  if (deps.boundaries.length > 0) {
+    // Implausible distance -- catches the wrong-file upload. Nearest assigned
+    // boundary centroid; if nothing is within range, this is likely not this
+    // period's ground at all. Also a geometry computation, so it is skipped
+    // together with point-in-polygon above, not run separately here.
     const nearest = Math.min(
       ...deps.boundaries.map((b) =>
         haversineMetres(point, { lat: b.centroid_lat, lon: b.centroid_lon }),
@@ -166,6 +229,11 @@ async function validateOne(
     'OPERATION_UNMATCHED',
     'CONTACT_UNMATCHED',
     'IMPLAUSIBLE_DISTANCE',
+    // Geometry matching was skipped AND there was no stated boundary either --
+    // this row truly cannot be placed automatically. Review-level, same as
+    // POINT_OUTSIDE_BOUNDARY, and — critically — NOT blocking: it must never
+    // by itself stop a well-formed spreadsheet from reaching committed.
+    BOUNDARY_UNRESOLVED_NO_GEOSPATIAL,
   ]);
   const status = codes.some((c) => blockingCodes.has(c))
     ? 'blocked'
@@ -222,8 +290,9 @@ export function liveDeps(
   };
 }
 
+/** Dialect-neutral SELECT/JOIN — no MERGE, VARIANT or QUALIFY. Works unchanged on both backends. */
 export async function loadExistingLabels(
-  sf: SnowflakeClient,
+  sf: SqlClient,
   periodCode: string,
   boundaryIds: readonly string[],
 ): Promise<Map<string, Set<string>>> {

@@ -9,7 +9,7 @@
  * That property is what lets a call site keep its query and change one type.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   asIsoTimestamp,
   asObjects,
@@ -680,32 +680,5 @@ describe('migratePostgres', () => {
     expect(sql).toMatch(/PAYLOAD\s+jsonb\s+NOT NULL/);
     expect(sql).toContain('SYNC_PAYLOAD_BYTES_MATCH');
     expect(sql).toMatch(/RAW_VALUES_TEXT\s+text/);
-  });
-});
-
-describe('the mock-mode composition hazard', () => {
-  it('is why isMockMode() must stop keying on SNOWFLAKE_ACCOUNT', async () => {
-    // src/server/dev/mock-mode.ts is owned by server-endpoints, so this test
-    // documents the defect rather than fixing it: with the Postgres backend
-    // selected and no Snowflake credentials, isMockMode() returns true and every
-    // endpoint that consults it serves fixtures -- so the Netlify database is
-    // never reached. Recorded as an executable note, and it will start failing
-    // the moment that file is corrected, which is the signal to delete this test.
-    const previous = { ...process.env };
-    try {
-      delete process.env.SNOWFLAKE_ACCOUNT;
-      delete process.env.MOCK_SNOWFLAKE;
-      process.env.NETLIFY_DATABASE_URL = 'postgres://example/db';
-      vi.resetModules();
-      const [{ isMockMode }, { sqlBackend }] = await Promise.all([
-        import('../../src/server/dev/mock-mode.js'),
-        import('../../src/server/env.js'),
-      ]);
-      expect(sqlBackend()).toBe('postgres');
-      expect(isMockMode()).toBe(true); // <- the hazard, in one line
-    } finally {
-      process.env = previous;
-      vi.resetModules();
-    }
   });
 });

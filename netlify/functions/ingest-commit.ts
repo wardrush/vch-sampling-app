@@ -9,7 +9,7 @@ import type { IngestCommitRequest } from '../../src/shared/contract/ingest.js';
 import { commitImport } from '../../src/ingest/commit/index.js';
 import { requireSession } from '../../src/shared/auth/session.js';
 import { clientIp } from '../../src/shared/auth/audit.js';
-import { blobStore, sessionSecret, snowflake } from '../../src/server/env.js';
+import { blobStore, sessionSecret, sqlClient } from '../../src/server/env.js';
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method !== 'POST') return new Response('method not allowed', { status: 405 });
@@ -29,7 +29,7 @@ export default async function handler(request: Request): Promise<Response> {
   }
 
   const result = await commitImport(body, {
-    snowflake: snowflake(),
+    snowflake: sqlClient(),
     blobs: await blobStore(),
     actor: {
       ref: session.sub,
