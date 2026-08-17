@@ -23,20 +23,35 @@ export default defineConfig({
         // never blocks on the network, and costs a sampling day in a build where a
         // defect found in October waits a year. `maximumFileSizeToCacheInBytes` is
         // already 5 MB, so the extension list was the only obstacle.
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,wasm}'],
+        // `woff2`/`woff` are here for the same offline reason as `wasm`: Quicksand
+        // is self-hosted (never Google Fonts) so the app has no font dependency on
+        // the network in a field with no bars.
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,wasm,woff2,woff}'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
       manifest: {
-        name: 'VCH Sampler',
+        name: "Veteran's Carbon Holdings — Sampler",
         short_name: 'VCH Sampler',
         description: 'VCH soil sampling field capture',
-        theme_color: '#0b3d2e',
-        background_color: '#0b3d2e',
+        // Brand values, not invented ones: moss-900 is the darkest brand green and
+        // sand-50 is the page ground on veteranscarbonholdings.com. The previous
+        // `#0b3d2e` was a placeholder in neither brand scale.
+        theme_color: '#132719',
+        background_color: '#f8f3ea',
         display: 'standalone',
+        orientation: 'portrait',
         start_url: '/',
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+          // Android masks icons to a circle/squircle. Without a maskable variant
+          // carrying its own safe zone, the logo's gold ring gets sliced.
+          {
+            src: '/icons/icon-maskable-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
         ],
       },
     }),
