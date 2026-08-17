@@ -1,3 +1,13 @@
+/**
+ * B1 — structural resets only. Deliberately no colour, spacing, or type-scale
+ * values here: `src/app/components/tokens/{colors,index}.ts` (spec-transcriber,
+ * B2) is the single source for those, consumed as inline styles the same way
+ * `Button.tsx`/`Chip.tsx` already do. A second, competing set of hex values in
+ * this file is exactly what would make the pending palette decision (v02
+ * §4.3 fixes the *requirement*, not the hex — see the wave-1 report) a
+ * two-file change instead of one.
+ */
+
 :root {
   color-scheme: light;
 }
@@ -20,5 +30,19 @@ body {
     'Segoe UI',
     Roboto,
     sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  /* Gloved, wind-blown, one-handed use — a scroll gesture on a boundary map
+     or a photo tile must never trigger the browser's own pull-to-refresh or
+     back/forward swipe. */
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+/* Keep default focus visibility for keyboard/switch-control users; components
+   layer their own visible focus ring (Button.tsx) on top of this, not instead
+   of it. */
+img,
+button,
+input {
   -webkit-tap-highlight-color: transparent;
 }

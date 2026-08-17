@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b3d2e" />
+    <!--
+      Manual manifest link, kept deliberately: vite-plugin-pwa's dev server
+      only rewrites index.html when `devOptions.enabled` is true in
+      vite.config.ts, which it currently is not (vite.config.ts is
+      orchestrator-only — see the wave-1 pwa-screens report for the ask), so
+      `npm run dev` never injects one. `npm run build` *does* inject its own
+      copy of this same tag unconditionally; the harmless duplicate in the
+      production `dist/index.html` is the trade-off for a manifest link that
+      actually resolves in dev.
+    -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <title>VCH Sampler</title>
   </head>
