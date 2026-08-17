@@ -19,19 +19,34 @@ import type { DefectRule } from '../types.js';
 import { DEFECT_CODE } from '../../../shared/codes/index.js';
 import { duplicateBarcodeRule } from './duplicate-barcode.js';
 import { noGpsFixRule } from './no-gps-fix.js';
+import { missingRequiredMediaRule } from './missing-required-media.js';
+import { offsetExceededNoReasonRule } from './offset-exceeded-no-reason.js';
+import { mediaGallerySourcedRule } from './media-gallery-sourced.js';
+import { depthShortfallRule } from './depth-shortfall.js';
 
 export function defaultRules(): DefectRule[] {
-  return [duplicateBarcodeRule, noGpsFixRule];
+  return [
+    duplicateBarcodeRule,
+    noGpsFixRule,
+    missingRequiredMediaRule,
+    offsetExceededNoReasonRule,
+    mediaGallerySourcedRule,
+    depthShortfallRule,
+  ];
 }
 
-/** Owned by A8. Named, so the gap is visible rather than discovered in April. */
+/**
+ * Owned by A8. Named, so the gap is visible rather than discovered in April.
+ *
+ * Two codes are pending because their thresholds are not written down:
+ * - CLOCK_DRIFT_SUSPECTED: needs a drift tolerance in seconds; not specified
+ *   in PROJECT_SAMPLING_SPEC, contract, or DDL
+ * - EXIF_POSITION_MISMATCH: needs a distance threshold in meters; not specified
+ *   anywhere in the specification documents
+ */
 export const PENDING_A8_RULES: readonly string[] = [
-  DEFECT_CODE.MISSING_REQUIRED_MEDIA,
-  DEFECT_CODE.OFFSET_EXCEEDED_NO_REASON,
   DEFECT_CODE.CLOCK_DRIFT_SUSPECTED,
   DEFECT_CODE.EXIF_POSITION_MISMATCH,
-  DEFECT_CODE.MEDIA_GALLERY_SOURCED,
-  DEFECT_CODE.DEPTH_SHORTFALL,
 ];
 
 /**
@@ -46,4 +61,11 @@ export const PIPELINE_RAISED: readonly string[] = [
 /** `PLAN_POINT_UNSAMPLED` is a sweep over a *closed plan*, not over a batch (A9). */
 export const NIGHTLY_RAISED: readonly string[] = [DEFECT_CODE.PLAN_POINT_UNSAMPLED];
 
-export { duplicateBarcodeRule, noGpsFixRule };
+export {
+  duplicateBarcodeRule,
+  noGpsFixRule,
+  missingRequiredMediaRule,
+  offsetExceededNoReasonRule,
+  mediaGallerySourcedRule,
+  depthShortfallRule,
+};
