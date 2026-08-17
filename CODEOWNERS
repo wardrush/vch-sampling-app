@@ -1,34 +1,80 @@
-# Concurrent build lanes - three code ownership boundaries
-# See CONCURRENT_BUILD_PLAN_v01.md §4 for detailed ownership rules
+# Code ownership — the write-disjoint boundary the subagent fleet runs on.
+#
+# Authoritative source: .claude/fleet/FLEET.md §1 (roster) and §4 (the six rules).
+# Agent definitions: .claude/agents/<name>.md
+# This file is the human/GitHub-facing copy of the same boundary. If the two ever
+# disagree, FLEET.md wins and this file is the bug.
+#
+# The @claude-a/b/c handles are the original three lanes from
+# CONCURRENT_BUILD_PLAN_v01.md §4, kept so review routing does not change. The agent
+# name in the trailing comment is what to spawn.
 
-# Lane A — Sync spine & server (default: Opus 5)
-src/shared/contract/**         @claude-a
-src/shared/codes/**            @claude-a
-src/shared/db/**               @claude-a
-src/shared/snowflake/**        @claude-a
-src/shared/auth/**             @claude-a
-src/sync/**                    @claude-a
-netlify/functions/sync-*       @claude-a
-netlify/functions/assignments-* @claude-a
-netlify/functions/derive-*     @claude-a
-netlify/functions/nightly-*    @claude-a
-netlify/functions/auth-*       @claude-a
-ddl/**                         @claude-a
-netlify.toml                   @claude-a
-package.json                   @claude-a
+# ─── Opus tier — a season is lost, or an audit record is unfalsifiable ───────────
 
-# Lane B — Sampler PWA (default: Sonnet 5)
-src/app/**                     @claude-b
-src/shared/map/**              @claude-b
-tools/pmtiles/**               @claude-b
+src/shared/contract/**          @claude-a   # schema-steward — announced, never silent
+src/shared/db/**                @claude-a   # schema-steward
+src/shared/snowflake/**         @claude-a   # schema-steward
+src/shared/geo/**               @claude-a   # schema-steward
+*.sql                           @claude-a   # schema-steward
+tools/deploy-ddl.ts             @claude-a   # schema-steward
 
-# Lane C — Ingest tool, then analyst queue (default: Haiku 4.5)
-src/ingest/**                  @claude-c
-src/analyst/**                 @claude-c
-netlify/functions/ingest-*     @claude-c
-fixtures/**                    @claude-c
+src/sync/**                     @claude-a   # sync-spine
+src/server/sync/**              @claude-a   # sync-spine
+src/server/derive/**            @claude-a   # sync-spine
+src/server/media/**             @claude-a   # sync-spine
+src/server/storage/**           @claude-a   # sync-spine
+netlify/functions/sync-*        @claude-a   # sync-spine
+netlify/functions/derive-*      @claude-a   # sync-spine
+tests/acceptance/**             @claude-a   # sync-spine
 
-# Root-level docs and coordination
-*.md                           @claude-a
-lanes/                         *
-integration/                   *
+src/app/capture/**              @claude-b   # capture-integrity
+
+# ─── Sonnet tier — a human sees it is wrong within a day ────────────────────────
+
+src/app/App.tsx                 @claude-b   # pwa-screens
+src/app/shell/**                @claude-b   # pwa-screens
+src/app/screens/**              @claude-b   # pwa-screens
+src/app/styles/**               @claude-b   # pwa-screens
+src/main.tsx                    @claude-b   # pwa-screens
+index.html                      @claude-b   # pwa-screens
+
+src/shared/map/**               @claude-b   # map-surface — the ONLY MapLibre setup
+tools/pmtiles/**                @claude-b   # map-surface
+
+src/server/assignments/**       @claude-a   # server-endpoints
+src/server/nightly/**           @claude-a   # server-endpoints
+src/server/dev/**               @claude-a   # server-endpoints
+src/analyst/**                  @claude-c   # server-endpoints
+netlify/functions/assignments-* @claude-a   # server-endpoints
+netlify/functions/nightly-*     @claude-a   # server-endpoints
+netlify/functions/analyst-*     @claude-c   # server-endpoints
+
+# ─── Haiku tier — the answer is already written in a document ───────────────────
+
+src/ingest/**                   @claude-c   # ingest-lane
+netlify/functions/ingest-*      @claude-c   # ingest-lane
+
+src/server/defects/rules/**     @claude-a   # defect-rules (harness above it is sync-spine)
+
+src/shared/codes/**             @claude-c   # spec-transcriber
+src/app/components/**           @claude-c   # spec-transcriber
+src/app/screens/skip/**         @claude-c   # spec-transcriber
+src/app/screens/storage/**      @claude-c   # spec-transcriber
+fixtures/**                     @claude-c   # spec-transcriber
+sampling_erd.mermaid            @claude-c   # spec-transcriber
+
+# ─── Orchestrator only — no subagent writes these (FLEET.md §4 rule 3) ──────────
+
+package.json                    @claude-a
+package-lock.json               @claude-a
+netlify.toml                    @claude-a
+tsconfig.json                   @claude-a
+CLAUDE.md                       @claude-a
+*.md                            @claude-a
+.claude/**                      @claude-a
+
+# ─── Shared by design, append-only (FLEET.md §4 rule 4) ─────────────────────────
+
+integration/                    *
+lanes/                          *
+.claude/fleet/reports/          *
